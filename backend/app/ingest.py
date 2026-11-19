@@ -19,7 +19,13 @@ except Exception:  # pragma: no cover
 try:
     import pytesseract
     from PIL import Image, ImageOps
-    HAS_TESSERACT = shutil.which("tesseract") is not None
+    # Windows: the UB Mannheim installer does not add Tesseract to PATH
+    for _p in (os.environ.get("TESSERACT_CMD"), r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+               r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"):
+        if _p and os.path.isfile(_p) and not shutil.which("tesseract"):
+            pytesseract.pytesseract.tesseract_cmd = _p
+            break
+    HAS_TESSERACT = shutil.which("tesseract") is not None or os.path.isfile(pytesseract.pytesseract.tesseract_cmd)
 except Exception:  # pragma: no cover
     HAS_TESSERACT = False
 
