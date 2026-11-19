@@ -1,0 +1,13 @@
+# Tên miền nội bộ lấy từ biến SGCL_DOMAIN (mặc định sgcl.local).
+# Chạy HTTP trong mạng LAN. Nếu dùng tên miền thật có HTTPS, xem docs/TRIEN-KHAI-NOI-BO.md.
+http://{$SGCL_DOMAIN}, http://:80 {
+	request_body {
+		max_size 500MB
+	}
+	reverse_proxy sgcl:8000 {
+		transport http {
+			read_timeout 10m
+			write_timeout 10m
+		}
+	}
+}

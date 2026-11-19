@@ -21,6 +21,8 @@ app = FastAPI(title="SGCL Ship Documentation Automation System")
 POOL = ThreadPoolExecutor(max_workers=2)
 LOCK = threading.Lock()
 MAX_UPLOAD = 50 * 1024 * 1024
+# Serverless hosts (Vercel) may suspend background threads once a response is sent.
+SYNC_PROCESSING = os.environ.get("SGCL_SYNC_PROCESSING") == "1"
 
 
 @app.on_event("startup")
@@ -435,7 +437,10 @@ def doc_pages(did: int, u=Depends(current_user)):
 def _queue(did, user):
     with db.tx() as c:
         c.execute("UPDATE documents SET status='PROCESSING', error=NULL WHERE id=?", (did,))
-    POOL.submit(process_document, did, user)
+    if SYNC_PROCESSING:
+        process_document(did, user)
+    else:
+        POOL.submit(process_document, did, user)
 
 
 def process_document(did, user):

@@ -1,0 +1,7 @@
+.git
+**/node_modules
+frontend/dist
+backend/data
+sgcl-data
+**/__pycache__
+**/*.pyc

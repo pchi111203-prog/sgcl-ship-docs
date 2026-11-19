@@ -1,0 +1,29 @@
+services:
+  sgcl:
+    build: .
+    container_name: sgcl
+    restart: unless-stopped
+    volumes:
+      - ./sgcl-data:/data
+    expose:
+      - "8000"
+
+  web:
+    image: caddy:2
+    container_name: sgcl-web
+    restart: unless-stopped
+    depends_on:
+      - sgcl
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - SGCL_DOMAIN=${SGCL_DOMAIN:-sgcl.local}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
