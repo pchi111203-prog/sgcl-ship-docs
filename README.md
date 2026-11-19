@@ -47,7 +47,7 @@ cd frontend && npm install && npm run build
 ```bash
 ./start.sh
 ```
-Mở <http://localhost:8000>. Tài khoản khởi tạo: `staff / staff123` (nhân viên), `admin / admin123` (supervisor) – **đổi mật khẩu** tại Cài đặt hệ thống.
+Mở <http://localhost:8000>. **Tài khoản khởi tạo** (lần chạy đầu tiên): mật khẩu lấy từ biến môi trường `SGCL_ADMIN_PASSWORD`, `SGCL_STAFF_PASSWORD`; nếu không đặt, hệ thống tự sinh mật khẩu ngẫu nhiên, in ra cửa sổ máy chủ và lưu ở `backend/data/initial_credentials.txt`. Đổi mật khẩu tại Cài đặt hệ thống rồi xóa file đó. Đăng nhập sai 5 lần bị khóa 15 phút; phiên đăng nhập hết hạn sau 12 giờ.
 
 Phát triển giao diện: chạy backend (`cd backend && uvicorn app.main:app --reload`) và `cd frontend && npm run dev` (http://localhost:5173, đã proxy `/api`).
 
@@ -57,6 +57,12 @@ cd backend && SGCL_DATA_DIR=$(mktemp -d) python3 -m pytest -q tests
 ```
 
 Biến môi trường: `SGCL_DATA_DIR` (thư mục dữ liệu), `SGCL_TEMPLATE` (đường dẫn mẫu NSW), `SGCL_OCR_LANG` (VD `eng` để OCR nhanh hơn), `SGCL_SKIP_LIBREOFFICE=1`.
+
+## 2b. Triển khai online: Railway (xử lý) + Vercel (giao diện)
+
+- **Railway** build từ `Dockerfile` (cài sẵn Tesseract tiếng Việt). Cần gắn **Volume** vào `/data` để giữ dữ liệu. Biến môi trường: `SGCL_ADMIN_PASSWORD`, `SGCL_STAFF_PASSWORD`, `SGCL_CORS_ORIGINS=https://<tên>.vercel.app`.
+- **Vercel** chỉ build giao diện theo `vercel.json`. Biến môi trường: `VITE_API_BASE=https://<địa-chỉ-railway>` (build lại sau khi đặt).
+- Địa chỉ Railway cũng tự mở được giao diện (không bắt buộc dùng Vercel).
 
 ## 3. Hướng dẫn sử dụng
 

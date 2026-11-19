@@ -27,7 +27,7 @@ export default function Login({ onLogin }) {
         <div className="field"><label className="f">Tên đăng nhập</label><input value={username} onChange={(e) => setU(e.target.value)} autoFocus /></div>
         <div className="field"><label className="f">Mật khẩu</label><input type="password" value={password} onChange={(e) => setP(e.target.value)} /></div>
         <button className="btn primary" style={{ width: '100%', justifyContent: 'center' }} disabled={busy}>{busy ? 'Đang đăng nhập…' : 'Đăng nhập'}</button>
-        <p className="small muted" style={{ marginTop: 16 }}>Tài khoản khởi tạo: <code>staff / staff123</code> (nhân viên), <code>admin / admin123</code> (supervisor). Đổi mật khẩu sau khi đăng nhập.</p>
+        <p className="small muted" style={{ marginTop: 16 }}>Tài khoản do quản trị hệ thống cấp. Lần cài đặt đầu tiên: xem mật khẩu khởi tạo trong log máy chủ hoặc file <code>initial_credentials.txt</code>.</p>
       </form>
     </div>
   )

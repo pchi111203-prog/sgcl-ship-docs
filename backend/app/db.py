@@ -173,11 +173,21 @@ def init_db():
     with tx() as c:
         c.executescript(SCHEMA)
         if not c.execute("SELECT 1 FROM users").fetchone():
-            # Default accounts for first start - passwords must be changed in Settings.
-            c.execute("INSERT INTO users(username,full_name,password_hash,role,created_at) VALUES(?,?,?,?,?)",
-                      ("admin", "Quản trị viên (Supervisor)", hash_password("admin123"), "supervisor", now()))
-            c.execute("INSERT INTO users(username,full_name,password_hash,role,created_at) VALUES(?,?,?,?,?)",
-                      ("staff", "Nhân viên đại lý", hash_password("staff123"), "staff", now()))
+            # First start: passwords come from environment variables; otherwise random ones are
+            # generated, printed in the server log and saved to <data>/initial_credentials.txt.
+            creds = []
+            for username, full_name, role, env in (("admin", "Quản trị viên (Supervisor)", "supervisor", "SGCL_ADMIN_PASSWORD"),
+                                                   ("staff", "Nhân viên đại lý", "staff", "SGCL_STAFF_PASSWORD")):
+                pw = os.environ.get(env) or secrets.token_urlsafe(9)
+                c.execute("INSERT INTO users(username,full_name,password_hash,role,created_at) VALUES(?,?,?,?,?)",
+                          (username, full_name, hash_password(pw), role, now()))
+                creds.append((username, pw, env in os.environ))
+            lines = [f"{u} / {p}" + ("" if from_env else "   (tự sinh)") for u, p, from_env in creds]
+            if not all(x[2] for x in creds):
+                path = os.path.join(DATA_DIR, "initial_credentials.txt")
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write("Tài khoản khởi tạo SGCL - hãy đổi mật khẩu sau khi đăng nhập rồi xóa file này\n" + "\n".join(lines) + "\n")
+                print("=" * 60 + "\nSGCL - TÀI KHOẢN KHỞI TẠO (đổi mật khẩu sau khi đăng nhập):\n" + "\n".join(lines) + "\n" + "=" * 60, flush=True)
 
 
 def log(conn, voyage_id, action, user, field_id=None, field_key=None, old=None, new=None, reason=None):

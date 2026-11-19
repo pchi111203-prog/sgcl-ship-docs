@@ -9,6 +9,8 @@ import time
 
 os.environ.setdefault("SGCL_DATA_DIR", tempfile.mkdtemp())
 os.environ.setdefault("SGCL_SKIP_LIBREOFFICE", "0")
+os.environ.setdefault("SGCL_STAFF_PASSWORD", "staff123")
+os.environ.setdefault("SGCL_ADMIN_PASSWORD", "admin123")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -164,3 +166,9 @@ def test_voyages_isolated():
     assert client.get(f"/api/voyages/{b['id']}/documents", headers=H).json()["documents"] == []
     rd = client.get(f"/api/voyages/{b['id']}/export/readiness", headers=H).json()
     assert not rd["plan"]["tables"] and all(c["kind"] == "option" for c in rd["plan"]["cells"])
+
+
+def test_login_lockout():
+    for _ in range(5):
+        assert client.post("/api/login", json={"username": "admin", "password": "wrong"}).status_code == 401
+    assert client.post("/api/login", json={"username": "admin", "password": "admin123"}).status_code == 429

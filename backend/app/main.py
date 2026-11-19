@@ -7,9 +7,9 @@ import tempfile
 import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -18,6 +18,13 @@ from . import crosscheck, db, extract, ingest, nsw_export, samples
 from . import normalize as N
 
 app = FastAPI(title="SGCL Ship Documentation Automation System")
+SESSION_HOURS = int(os.environ.get("SGCL_SESSION_HOURS", "12"))
+LOGIN_FAILS = {}  # (username, ip) -> [timestamps] ; 5 failures / 15 minutes -> locked
+# Frontend hosted elsewhere (e.g. Vercel): allow its origin(s), comma separated
+if os.environ.get("SGCL_CORS_ORIGINS"):
+    from fastapi.middleware.cors import CORSMiddleware
+    app.add_middleware(CORSMiddleware, allow_origins=[o.strip().rstrip("/") for o in os.environ["SGCL_CORS_ORIGINS"].split(",") if o.strip()],
+                       allow_methods=["*"], allow_headers=["*"])
 POOL = ThreadPoolExecutor(max_workers=2)
 LOCK = threading.Lock()
 MAX_UPLOAD = 50 * 1024 * 1024
@@ -35,6 +42,8 @@ def startup():
 def current_user(authorization: str = Header(default="")):
     token = authorization.replace("Bearer ", "").strip()
     with db.tx() as c:
+        limit = (datetime.now() - timedelta(hours=SESSION_HOURS)).strftime("%Y-%m-%d %H:%M:%S")
+        c.execute("DELETE FROM sessions WHERE created_at < ?", (limit,))
         u = db.row(c, "SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=?", (token,))
     if not u:
         raise HTTPException(401, "Phiên đăng nhập không hợp lệ")
@@ -54,11 +63,19 @@ class LoginIn(BaseModel):
 
 
 @app.post("/api/login")
-def login(body: LoginIn):
+def login(body: LoginIn, request: Request):
+    key = (body.username.strip().lower(), request.client.host if request.client else "")
+    t = datetime.now().timestamp()
+    fails = [x for x in LOGIN_FAILS.get(key, []) if t - x < 900]
+    if len(fails) >= 5:
+        raise HTTPException(429, "Đăng nhập sai quá 5 lần - vui lòng thử lại sau 15 phút")
     with db.tx() as c:
         u = db.row(c, "SELECT * FROM users WHERE username=?", (body.username.strip(),))
         if not u or not db.verify_password(body.password, u["password_hash"]):
+            LOGIN_FAILS[key] = fails + [t]
             raise HTTPException(401, "Sai tên đăng nhập hoặc mật khẩu")
+    LOGIN_FAILS.pop(key, None)
+    with db.tx() as c:
         token = secrets.token_hex(24)
         c.execute("INSERT INTO sessions(token,user_id,created_at) VALUES(?,?,?)", (token, u["id"], db.now()))
     return {"token": token, "user": {"id": u["id"], "username": u["username"], "full_name": u["full_name"], "role": u["role"]}}

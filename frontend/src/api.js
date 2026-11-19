@@ -12,13 +12,16 @@ export class ApiError extends Error {
   }
 }
 
+// When the UI is hosted separately (Vercel), VITE_API_BASE = backend URL, e.g. https://sgcl-api.up.railway.app
+export const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '')
+
 export async function api(path, { method = 'GET', body, form } = {}) {
   const headers = {}
   if (auth.token) headers.Authorization = `Bearer ${auth.token}`
   let payload
   if (form) payload = form
   else if (body !== undefined) { headers['Content-Type'] = 'application/json'; payload = JSON.stringify(body) }
-  const r = await fetch(path, { method, headers, body: payload })
+  const r = await fetch(API_BASE + path, { method, headers, body: payload })
   if (r.status === 401 && !path.endsWith('/login')) {
     auth.token = null
     window.location.href = '/login'
@@ -30,6 +33,6 @@ export async function api(path, { method = 'GET', body, form } = {}) {
   return data
 }
 
-export const fileUrl = (path) => `${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(auth.token || '')}`
+export const fileUrl = (path) => `${API_BASE}${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(auth.token || '')}`
 
 export const fmtSize = (n) => n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`
