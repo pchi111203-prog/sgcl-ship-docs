@@ -175,7 +175,7 @@ def init_db():
         if not c.execute("SELECT 1 FROM users").fetchone():
             # Default accounts for first start - passwords must be changed in Settings.
             c.execute("INSERT INTO users(username,full_name,password_hash,role,created_at) VALUES(?,?,?,?,?)",
-                      ("admin", "Quản trị viên (Supervisor)", hash_password("admin123"), "supervisor", now()))
+                      ("admin", "Quản trị viên (Supervisor)", hash_password("Sunny12"), "supervisor", now()))
             c.execute("INSERT INTO users(username,full_name,password_hash,role,created_at) VALUES(?,?,?,?,?)",
                       ("staff", "Nhân viên đại lý", hash_password("staff123"), "staff", now()))
 

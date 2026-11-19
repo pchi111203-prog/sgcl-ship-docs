@@ -136,7 +136,7 @@ def test_scenario2_discrepancies_detected():
     # supervisor override still possible, with reason
     r = client.post(f"/api/voyages/{vid}/export", json={"override_username": "staff", "override_password": "staff123", "override_reason": "x"}, headers=H)
     assert r.status_code == 403
-    r = client.post(f"/api/voyages/{vid}/export", json={"override_username": "admin", "override_password": "admin123", "override_reason": "Test ngoại lệ"}, headers=H)
+    r = client.post(f"/api/voyages/{vid}/export", json={"override_username": "admin", "override_password": "Sunny12", "override_reason": "Test ngoại lệ"}, headers=H)
     assert r.status_code == 200, r.text
 
 
