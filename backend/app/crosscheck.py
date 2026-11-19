@@ -1,0 +1,484 @@
+"""Cross-check engine.
+
+Statuses:
+  PASSED            compared in >=2 sources and consistent
+  MISMATCH          values differ between documents              (blocking)
+  MISSING_INFO      required information missing                 (blocking only where noted)
+  NEEDS_REVIEW      something staff must look at (format, check digit, wording differs)
+  DUPLICATE         duplicated record                            (blocking)
+  LOW_CONFIDENCE    extraction confidence below threshold
+  WRONG_VOYAGE      document seems to belong to another vessel/voyage (blocking)
+  NOT_AVAILABLE     "Not Available in Source" - no document contains the field
+  NOT_ENOUGH_DATA   "Not Enough Data" - only one source, nothing to compare with
+The engine never decides which value is right; it reports both values with their sources.
+"""
+import re
+from collections import defaultdict
+
+from . import db
+from . import normalize as N
+from .extract import DOC_TYPES, FIELD_LABELS, LOW_CONF
+
+GROUP_VESSEL = "1. Thông tin tàu & chuyến"
+GROUP_CARGO = "2. Hàng hóa (Manifest ↔ B/L)"
+GROUP_CREW = "3. Thuyền viên"
+GROUP_DG = "4. Hàng nguy hiểm"
+GROUP_DOC = "0. Chứng từ / chuyến tàu"
+GROUP_QUALITY = "5. Chất lượng trích xuất"
+
+BLOCKING = {"MISMATCH", "DUPLICATE", "WRONG_VOYAGE"}
+
+
+def _cmp_text(a, b):
+    return N.norm_text(a) == N.norm_text(b)
+
+
+def _company_key(s):
+    k = N.norm_text(s)
+    k = re.sub(r"\b(CO|COMPANY|LTD|LIMITED|CORP|CORPORATION|INC|JSC|PTE|LLC)\b", "", k)
+    return re.sub(r"\s+", " ", k).strip()
+
+
+def _locode(s):
+    m = re.search(r"\b([A-Z]{2}[A-Z2-9]{3})\b(?=\)|$)", (s or "").upper())
+    return m.group(1) if m else None
+
+
+def _cmp_port(a, b):
+    la, lb = _locode(a), _locode(b)
+    if la and lb:
+        return la == lb
+    ka, kb = N.norm_text(a), N.norm_text(b)
+    return ka == kb or (len(min(ka, kb, key=len)) >= 4 and (ka in kb or kb in ka))
+
+
+def _cmp_number(a, b):
+    ka, kb = N.number_key(a), N.number_key(b)
+    if ka is None or kb is None:
+        return N.norm_text(a) == N.norm_text(b)
+    if ka[1] and kb[1] and ka[1] != kb[1]:
+        return False
+    return abs(ka[0] - kb[0]) < 0.0005 * max(1, abs(ka[0]))
+
+
+def _cmp_flag(a, b):
+    sa, sb = N.suggest_state(a), N.suggest_state(b)
+    if sa and sb:
+        return sa == sb
+    return _cmp_text(a, b)
+
+
+def _cmp_date(a, b):
+    da, oka = N.parse_date(a)
+    dbb, okb = N.parse_date(b)
+    if oka and okb:
+        if len(da) != len(dbb):  # one has a time, the other only a date: compare the date part
+            return da[:10] == dbb[:10]
+        return da == dbb
+    return _cmp_text(a, b)
+
+
+def _cmp_id(a, b):
+    return N.norm_id(a) == N.norm_id(b)
+
+
+def _cmp_set(a, b):
+    sa = {N.norm_id(x) for x in re.split(r"[,;/\s]+", a or "") if x.strip()}
+    sb = {N.norm_id(x) for x in re.split(r"[,;/\s]+", b or "") if x.strip()}
+    return sa == sb
+
+
+VESSEL_CHECKS = [
+    # field, comparator, document types compared
+    ("vessel_name", _cmp_text, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "TONNAGE_CERTIFICATE"]),
+    ("imo", _cmp_id, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "TONNAGE_CERTIFICATE"]),
+    ("call_sign", _cmp_id, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "TONNAGE_CERTIFICATE"]),
+    ("flag", _cmp_flag, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "TONNAGE_CERTIFICATE"]),
+    ("voyage_no", _cmp_id, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL"]),
+    ("gross_tonnage", _cmp_number, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "TONNAGE_CERTIFICATE"]),
+    ("net_tonnage", _cmp_number, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "TONNAGE_CERTIFICATE"]),
+    ("eta", _cmp_date, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL"]),
+    ("port_of_arrival", _cmp_port, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL"]),
+    ("last_port", _cmp_port, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL"]),
+    ("next_port", _cmp_port, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL"]),
+]
+
+CARGO_CHECKS = [
+    ("shipper", "company"), ("consignee", "company"), ("notify", "company"), ("description", "text"),
+    ("packages", "number"), ("gross_weight", "weight"), ("measurement", "number"),
+    ("container_no", "set"), ("seal_no", "set"), ("pol", "port"), ("pod", "port"),
+]
+
+
+class Ctx:
+    def __init__(self, conn, voyage_id):
+        self.conn = conn
+        self.voyage = db.row(conn, "SELECT * FROM voyages WHERE id=?", (voyage_id,))
+        self.docs = {d["id"]: d for d in db.rows(conn, "SELECT * FROM documents WHERE voyage_id=?", (voyage_id,))}
+        self.fields = db.rows(conn, "SELECT * FROM extracted_fields WHERE voyage_id=?", (voyage_id,))
+        self.results = []
+        self.acks = {(a["check_key"], a["value1"] or "", a["value2"] or ""): a for a in
+                     db.rows(conn, "SELECT * FROM crosscheck_acks WHERE voyage_id=?", (voyage_id,))}
+
+    def doc_type(self, f):
+        d = self.docs.get(f["document_id"])
+        return d["doc_type"] if d else "MANUAL"
+
+    def doc_name(self, doc_id):
+        d = self.docs.get(doc_id)
+        return d["original_name"] if d else "Hồ sơ chuyến tàu (nhập tay)"
+
+    def add(self, group, status, message, field_key=None, record_key=None, f1=None, f2=None, v1=None, v2=None,
+            suggestion=None, blocking=None, check_key=None, doc1=None, doc2=None, page1=None, page2=None):
+        if f1:
+            doc1, v1, page1 = f1["document_id"], f1["value"], f1["page_no"]
+        if f2:
+            doc2, v2, page2 = f2["document_id"], f2["value"], f2["page_no"]
+        if blocking is None:
+            blocking = status in BLOCKING
+        key = check_key or "|".join(str(x) for x in (group, field_key, record_key, doc1, doc2, status))
+        ack = self.acks.get((key, v1 or "", v2 or ""))
+        self.results.append(dict(group_name=group, check_key=key, field_key=field_key, record_key=record_key, status=status,
+                                 doc1_id=doc1, value1=v1, page1=page1, field1_id=f1["id"] if f1 else None,
+                                 doc2_id=doc2, value2=v2, page2=page2, field2_id=f2["id"] if f2 else None,
+                                 message=message, suggestion=suggestion, blocking=1 if blocking and not ack else 0,
+                                 acknowledged=1 if ack else 0, ack_note=ack["note"] if ack else None))
+
+    def header(self, key, types=None):
+        return [f for f in self.fields if f["section"] == "vessel" and f["record_key"] == "header" and f["field_key"] == key
+                and (types is None or self.doc_type(f) in types) and (f["value"] or "").strip()]
+
+    def records(self, section, types=None):
+        recs = defaultdict(dict)
+        for f in self.fields:
+            if f["section"] == section and (types is None or self.doc_type(f) in types):
+                recs[(f["document_id"], f["record_key"])][f["field_key"]] = f
+        return recs
+
+
+def check_vessel(c: Ctx):
+    for key, cmp, types in VESSEL_CHECKS:
+        label = FIELD_LABELS.get(key, key)
+        vals = c.header(key, types)
+        if not vals:
+            c.add(GROUP_VESSEL, "NOT_AVAILABLE", f"{label}: Not Available in Source - không có trong GD/NOA/Tonnage Certificate.", key, "header")
+            continue
+        if key == "imo":
+            for f in vals:
+                if not N.imo_valid(f["value"]):
+                    c.add(GROUP_VESSEL, "NEEDS_REVIEW", f"IMO '{f['value']}' sai số kiểm tra (check digit) - có thể đọc sai hoặc ghi sai.", key, "header", f1=f,
+                          suggestion="Đối chiếu với bản gốc chứng từ.")
+        if len(vals) == 1:
+            c.add(GROUP_VESSEL, "NOT_ENOUGH_DATA", f"{label}: Not Enough Data - chỉ có trong 1 chứng từ, chưa đối chiếu được.", key, "header", f1=vals[0])
+            continue
+        base = vals[0]
+        diff = False
+        for other in vals[1:]:
+            if other["document_id"] == base["document_id"]:
+                continue
+            if not cmp(base["value"], other["value"]):
+                diff = True
+                c.add(GROUP_VESSEL, "MISMATCH", f"{label} khác nhau giữa 2 chứng từ.", key, "header", f1=base, f2=other,
+                      suggestion="Kiểm tra bản gốc; chọn giá trị đúng ở màn hình Đối chiếu hoặc sửa tại Kiểm tra & xác nhận.")
+        if not diff:
+            c.add(GROUP_VESSEL, "PASSED", f"{label} thống nhất giữa {len(vals)} chứng từ.", key, "header", f1=base, f2=vals[1])
+
+
+def check_wrong_voyage(c: Ctx):
+    v = c.voyage
+    ref = {"vessel_name": v.get("vessel_name"), "imo": v.get("imo"), "voyage_no": v.get("voyage_no")}
+    # if the voyage record is empty, use the General Declaration as reference
+    gd = {k: (c.header(k, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL"]) or [None])[0] for k in ref}
+    for doc_id, d in c.docs.items():
+        for key, cmp in (("vessel_name", _cmp_text), ("imo", _cmp_id), ("voyage_no", _cmp_id)):
+            fs = [f for f in c.header(key) if f["document_id"] == doc_id]
+            if not fs:
+                continue
+            f = fs[0]
+            if ref[key]:
+                refv, src = ref[key], "hồ sơ chuyến tàu"
+                f2 = None
+            elif gd[key] and gd[key]["document_id"] != doc_id:
+                refv, src, f2 = gd[key]["value"], c.doc_name(gd[key]["document_id"]), gd[key]
+            else:
+                continue
+            if key == "voyage_no" and d["doc_type"] == "TONNAGE_CERTIFICATE":
+                continue
+            if cmp(f["value"], refv):
+                continue
+            a, b = N.norm_id(f["value"]), N.norm_id(refv)
+            if key == "voyage_no" and a and b and (a in b or b in a):
+                c.add(GROUP_DOC, "NEEDS_REVIEW", f"Số chuyến trên '{d['original_name']}' ({f['value']}) gần giống {src} ({refv}).", key, "header",
+                      f1=f, f2=f2, v2=None if f2 else refv, suggestion="Xác nhận đây là cùng chuyến.")
+                continue
+            c.add(GROUP_DOC, "WRONG_VOYAGE", f"'{d['original_name']}' ghi {FIELD_LABELS[key]} = '{f['value']}', khác {src} ('{refv}'). "
+                  "Có dấu hiệu chứng từ thuộc tàu/chuyến khác.", key, "header", f1=f, f2=f2, v2=None if f2 else refv,
+                  suggestion="Kiểm tra lại chứng từ. Nếu tải nhầm, xóa chứng từ khỏi chuyến tàu này.")
+
+
+def _cargo_cmp(kind, a, b):
+    if kind == "company":
+        ka, kb = _company_key(a), _company_key(b)
+        if ka == kb:
+            return "same"
+        if ka and kb and (ka.startswith(kb) or kb.startswith(ka)):
+            return "similar"
+        return "diff"
+    if kind == "text":
+        if _cmp_text(a, b):
+            return "same"
+        ka, kb = N.norm_text(a), N.norm_text(b)
+        return "similar" if ka and kb and (ka in kb or kb in ka) else "diff"
+    if kind in ("number", "weight"):
+        return "same" if _cmp_number(a, b) else "diff"
+    if kind == "set":
+        return "same" if _cmp_set(a, b) else "diff"
+    if kind == "port":
+        return "same" if _cmp_port(a, b) else "diff"
+    return "same" if _cmp_text(a, b) else "diff"
+
+
+def _with_unit(rec, key):
+    f = rec.get(key)
+    if not f:
+        return None
+    u = rec.get(key + "_unit")
+    return f"{f['value']} {u['value']}" if u and not re.search(r"[A-Za-z]{2,}", f["value"] or "") else f["value"]
+
+
+def check_cargo(c: Ctx):
+    manifest = c.records("cargo", ["CARGO_MANIFEST"])
+    bls = c.records("cargo", ["BILL_OF_LADING"])
+    if not manifest and not bls:
+        c.add(GROUP_CARGO, "NOT_AVAILABLE", "Chưa có Cargo Manifest và B/L - Not Available in Source.")
+        return
+    if not manifest:
+        c.add(GROUP_CARGO, "NOT_ENOUGH_DATA", "Chưa có Cargo Manifest - Not Enough Data để đối chiếu với B/L.")
+    if not bls:
+        c.add(GROUP_CARGO, "NOT_ENOUGH_DATA", "Chưa có B/L - Not Enough Data để đối chiếu với Cargo Manifest.")
+
+    by_bl = defaultdict(list)
+    seen = {}
+    for (doc_id, rk), rec in sorted(manifest.items(), key=lambda x: (x[0][0], x[1].get("bl_no", {}).get("record_index", 0))):
+        bl = N.norm_id(rec.get("bl_no", {}).get("value"))
+        if not bl:
+            any_f = next(iter(rec.values()))
+            c.add(GROUP_CARGO, "MISSING_INFO", f"Dòng manifest {rk} không có số B/L.", "bl_no", rk, f1=any_f, v1="", blocking=True)
+            continue
+        by_bl[bl].append(rec)
+        sig = (bl, N.norm_id(rec.get("container_no", {}).get("value")), N.norm_text(rec.get("description", {}).get("value")))
+        if sig in seen:
+            c.add(GROUP_CARGO, "DUPLICATE", f"Dòng manifest trùng lặp: B/L {bl}, container {sig[1] or '-'}.", "bl_no", rk,
+                  f1=seen[sig]["bl_no"], f2=rec["bl_no"])
+        seen[sig] = rec
+        for cn in re.split(r"[,;\s]+", rec.get("container_no", {}).get("value") or ""):
+            if cn and not N.container_valid(cn):
+                c.add(GROUP_CARGO, "NEEDS_REVIEW", f"Số container '{cn}' không đúng chuẩn ISO 6346 (check digit).", "container_no", rk, f1=rec["container_no"])
+
+    matched = set()
+    for (doc_id, rk), b in bls.items():
+        blf = b.get("bl_no")
+        if not blf:
+            c.add(GROUP_CARGO, "MISSING_INFO", f"Không đọc được số B/L trong '{c.doc_name(doc_id)}'.", "bl_no", rk, doc1=doc_id, v1="", blocking=True)
+            continue
+        bl = N.norm_id(blf["value"])
+        rows = by_bl.get(bl)
+        if not manifest:
+            continue
+        if not rows:
+            c.add(GROUP_CARGO, "NEEDS_REVIEW", f"B/L {blf['value']} có vận đơn nhưng không có trong Cargo Manifest.", "bl_no", rk, f1=blf, v2="",
+                  blocking=True, suggestion="Kiểm tra B/L có thuộc chuyến này không / manifest có thiếu dòng không.")
+            continue
+        matched.add(bl)
+        for key, kind in CARGO_CHECKS:
+            label = FIELD_LABELS.get(key, key)
+            bf = b.get(key)
+            mvals = [r.get(key) for r in rows if r.get(key)]
+            if not bf and not mvals:
+                continue
+            if not bf or not mvals:
+                src = "B/L" if not bf else "Manifest"
+                c.add(GROUP_CARGO, "NOT_ENOUGH_DATA", f"B/L {bl} - {label}: không có trên {src}, chưa đối chiếu được.", key, f"bl:{bl}",
+                      f1=bf or mvals[0], blocking=False)
+                continue
+            if len(rows) > 1 and kind in ("number", "weight"):
+                nums = [N.number_key(_with_unit(r, key)) for r in rows]
+                if any(n is None for n in nums) or len({n[1] for n in nums}) > 1:
+                    c.add(GROUP_CARGO, "NEEDS_REVIEW", f"B/L {bl} - {label}: manifest có {len(rows)} dòng, không cộng được để so sánh.", key, f"bl:{bl}", f1=bf)
+                    continue
+                total = sum(n[0] for n in nums)
+                mval = f"{N.fmt_number(total)} {nums[0][1] or ''}".strip()
+                res = "same" if _cmp_number(_with_unit(b, key), mval) else "diff"
+                note = f" (tổng {len(rows)} dòng manifest)"
+                mf = mvals[0]
+            elif kind == "set" and len(rows) > 1:
+                mval = ", ".join(r[key]["value"] for r in rows if r.get(key))
+                res, note, mf = _cargo_cmp(kind, bf["value"], mval), f" (gộp {len(rows)} dòng manifest)", mvals[0]
+            else:
+                mf = mvals[0]
+                mval = _with_unit(rows[0], key) if kind in ("number", "weight") else mf["value"]
+                res, note = _cargo_cmp(kind, _with_unit(b, key) if kind in ("number", "weight") else bf["value"], mval), ""
+            if res == "same":
+                c.add(GROUP_CARGO, "PASSED", f"B/L {bl} - {label} khớp{note}.", key, f"bl:{bl}", f1=mf, f2=bf, v1=mval)
+            elif res == "similar":
+                c.add(GROUP_CARGO, "NEEDS_REVIEW", f"B/L {bl} - {label}: cách ghi khác nhau (có thể viết tắt){note}.", key, f"bl:{bl}", f1=mf, f2=bf,
+                      v1=mval, blocking=False)
+            else:
+                c.add(GROUP_CARGO, "MISMATCH", f"B/L {bl} - {label}: Cargo Manifest và B/L khác nhau{note}.", key, f"bl:{bl}", f1=mf, f2=bf, v1=mval,
+                      suggestion="Kiểm tra bản gốc. Hệ thống không tự chọn giá trị.")
+    if bls:
+        for bl, rows in by_bl.items():
+            if bl not in matched:
+                c.add(GROUP_CARGO, "NOT_ENOUGH_DATA", f"B/L {bl} có trong manifest nhưng chưa tải vận đơn - Not Enough Data.", "bl_no", f"bl:{bl}",
+                      f1=rows[0]["bl_no"], blocking=False)
+
+
+def check_crew(c: Ctx):
+    crew_docs = [d for d in c.docs.values() if d["doc_type"] == "CREW_LIST"]
+    if not crew_docs:
+        c.add(GROUP_CREW, "MISSING_INFO", "Chưa có Crew List trong bộ chứng từ.", blocking=False)
+        return
+    recs = c.records("crew", ["CREW_LIST", "MANUAL"])
+    if not recs:
+        c.add(GROUP_CREW, "MISSING_INFO", "Không trích xuất được dòng thuyền viên nào từ Crew List (bản scan/ảnh mờ hoặc bố cục chưa nhận diện). "
+              "Cần nhập bổ sung tại màn hình Kiểm tra & xác nhận.", blocking=True)
+        return
+    n = len(recs)
+    counts = c.header("crew_count", ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "CREW_LIST"])
+    if not counts:
+        c.add(GROUP_CREW, "NOT_ENOUGH_DATA", f"Crew List có {n} người; GD/NOA không ghi số thuyền viên - chưa đối chiếu được số lượng.", "crew_count")
+    for f in counts:
+        try:
+            k = int(re.sub(r"\D", "", f["value"]))
+        except ValueError:
+            continue
+        if k == n:
+            c.add(GROUP_CREW, "PASSED", f"Số thuyền viên khớp: {c.doc_name(f['document_id'])} = {k}, Crew List = {n} dòng.", "crew_count", f1=f, v2=str(n))
+        else:
+            c.add(GROUP_CREW, "MISMATCH", f"Số thuyền viên: {c.doc_name(f['document_id'])} ghi {k}, Crew List có {n} dòng.", "crew_count", f1=f, v2=str(n),
+                  doc2=crew_docs[0]["id"], suggestion="Kiểm tra Crew List có thiếu/thừa dòng hoặc trích xuất bỏ sót trang.")
+    seen_pp, seen_nm = {}, {}
+    eta = (c.header("eta") or [None])[0]
+    eta_d, _ = N.parse_date(eta["value"]) if eta else (None, False)
+    for (doc_id, rk), r in sorted(recs.items(), key=lambda x: next(iter(x[1].values()))["record_index"]):
+        name_f = r.get("full_name") or r.get("family_name") or r.get("given_name")
+        nm = (name_f or {}).get("value") or rk
+        missing = [FIELD_LABELS[k] for k in ("rank", "nationality", "dob", "passport_no") if not (r.get(k) and r[k]["value"])]
+        if not name_f:
+            missing.insert(0, "Họ tên")
+        if missing:
+            c.add(GROUP_CREW, "MISSING_INFO", f"Thuyền viên '{nm}' thiếu: {', '.join(missing)}.", None, rk, f1=name_f, doc1=doc_id, blocking=False)
+        pp = N.norm_id((r.get("passport_no") or {}).get("value"))
+        if pp:
+            if pp in seen_pp:
+                c.add(GROUP_CREW, "DUPLICATE", f"Trùng số hộ chiếu {pp}: '{seen_pp[pp][0]}' và '{nm}'.", "passport_no", rk, f1=seen_pp[pp][1], f2=r["passport_no"])
+            seen_pp[pp] = (nm, r["passport_no"])
+        key = (N.norm_text(nm), (r.get("dob") or {}).get("value"))
+        if name_f and key in seen_nm:
+            c.add(GROUP_CREW, "DUPLICATE", f"Trùng họ tên + ngày sinh: '{nm}'.", "full_name", rk, f1=seen_nm[key], f2=name_f)
+        seen_nm[key] = name_f
+        for dk in ("dob", "passport_expiry"):
+            f = r.get(dk)
+            if f and f["value"]:
+                d, ok = N.parse_date(f["value"])
+                if not ok:
+                    c.add(GROUP_CREW, "NEEDS_REVIEW", f"'{nm}' - {FIELD_LABELS[dk]} '{f['value']}' không đúng định dạng ngày.", dk, rk, f1=f)
+                elif dk == "passport_expiry" and eta_d:
+                    from datetime import datetime
+                    if datetime.strptime(d[:10], "%d/%m/%Y") < datetime.strptime(eta_d[:10], "%d/%m/%Y"):
+                        c.add(GROUP_CREW, "NEEDS_REVIEW", f"'{nm}' - hộ chiếu hết hạn ({d}) trước ETA ({eta_d}).", dk, rk, f1=f)
+    if not any(r["status"] in ("MISMATCH", "DUPLICATE") for r in c.results if r["group_name"] == GROUP_CREW):
+        c.add(GROUP_CREW, "PASSED" if counts else "NOT_ENOUGH_DATA", f"Đã kiểm tra {n} thuyền viên: không phát hiện trùng lặp.", blocking=False)
+
+
+def check_dg(c: Ctx):
+    dg = c.records("dg", ["DG_MANIFEST"])
+    if not dg:
+        if any(d["doc_type"] == "DG_MANIFEST" for d in c.docs.values()):
+            c.add(GROUP_DG, "MISSING_INFO", "Có DG Manifest nhưng không trích xuất được dòng hàng nguy hiểm nào.", blocking=True)
+        else:
+            c.add(GROUP_DG, "NOT_AVAILABLE", "Không có Dangerous Goods Manifest trong bộ chứng từ (Not Available in Source).")
+        return
+    manifest = c.records("cargo", ["CARGO_MANIFEST", "BILL_OF_LADING"])
+    by_bl = defaultdict(list)
+    for (_d, rk), r in manifest.items():
+        if r.get("bl_no"):
+            by_bl[N.norm_id(r["bl_no"]["value"])].append(r)
+    for (doc_id, rk), r in dg.items():
+        un = (r.get("un_no") or {}).get("value")
+        if not un or not re.fullmatch(r"(UN)?\s*\d{4}", un.strip(), re.I):
+            c.add(GROUP_DG, "NEEDS_REVIEW", f"Dòng DG {rk}: UN No. '{un or ''}' thiếu hoặc sai định dạng (4 chữ số).", "un_no", rk, f1=r.get("un_no"), doc1=doc_id)
+        cls = (r.get("imdg_class") or {}).get("value")
+        if not cls or not re.fullmatch(r"(CLASS\s*)?[1-9](\.\d)?[A-Z]?", cls.strip(), re.I):
+            c.add(GROUP_DG, "NEEDS_REVIEW", f"Dòng DG {rk}: IMDG Class '{cls or ''}' thiếu hoặc sai định dạng.", "imdg_class", rk, f1=r.get("imdg_class"), doc1=doc_id)
+        blf = r.get("bl_no")
+        if not blf:
+            c.add(GROUP_DG, "MISSING_INFO", f"Dòng DG {rk} không có số B/L.", "bl_no", rk, doc1=doc_id, blocking=False)
+            continue
+        rows = by_bl.get(N.norm_id(blf["value"]))
+        if not manifest:
+            c.add(GROUP_DG, "NOT_ENOUGH_DATA", "Chưa có Manifest/B/L để đối chiếu hàng nguy hiểm.", blocking=False)
+            return
+        if not rows:
+            c.add(GROUP_DG, "MISMATCH", f"B/L {blf['value']} có trong DG Manifest nhưng không có trong Cargo Manifest/B/L.", "bl_no", rk, f1=blf, v2="")
+            continue
+        for key, dkey, kind in (("container_no", "container_no", "set"), ("gross_weight", "gross_weight", "weight"),
+                                ("proper_shipping_name", "description", "text")):
+            df = r.get(key)
+            mf = next((x.get(dkey) for x in rows if x.get(dkey)), None)
+            if not df or not mf:
+                continue
+            res = _cargo_cmp(kind, _with_unit(r, key) if kind == "weight" else df["value"], _with_unit(rows[0], dkey) if kind == "weight" else mf["value"])
+            lbl = FIELD_LABELS.get(key, key)
+            if res == "same":
+                c.add(GROUP_DG, "PASSED", f"B/L {blf['value']} - {lbl} khớp giữa DG Manifest và Cargo Manifest/B/L.", key, rk, f1=df, f2=mf)
+            elif res == "similar" or kind == "text":
+                c.add(GROUP_DG, "NEEDS_REVIEW", f"B/L {blf['value']} - {lbl}: cách ghi khác nhau giữa DG và manifest.", key, rk, f1=df, f2=mf, blocking=False)
+            else:
+                c.add(GROUP_DG, "MISMATCH", f"B/L {blf['value']} - {lbl} khác nhau giữa DG Manifest và Cargo Manifest/B/L.", key, rk, f1=df, f2=mf)
+
+
+def check_documents(c: Ctx):
+    hashes = defaultdict(list)
+    for d in c.docs.values():
+        hashes[d["sha256"]].append(d)
+        if d["status"] == "ERROR":
+            c.add(GROUP_DOC, "NEEDS_REVIEW", f"'{d['original_name']}' xử lý lỗi: {d['error']}", doc1=d["id"], blocking=False)
+        elif d["status"] != "EXTRACTED":
+            c.add(GROUP_DOC, "NEEDS_REVIEW", f"'{d['original_name']}' chưa được trích xuất.", doc1=d["id"], blocking=False)
+        if d["doc_type"] == "OTHER" and not d["doc_type_confirmed"]:
+            c.add(GROUP_DOC, "NEEDS_REVIEW", f"'{d['original_name']}' chưa nhận diện được loại chứng từ - cần chọn loại.", doc1=d["id"], blocking=False)
+    for h, ds in hashes.items():
+        if len(ds) > 1:
+            c.add(GROUP_DOC, "DUPLICATE", "Tải trùng file: " + ", ".join(d["original_name"] for d in ds), doc1=ds[0]["id"], doc2=ds[1]["id"])
+
+
+def check_quality(c: Ctx):
+    for f in c.fields:
+        if f["confidence"] is not None and f["confidence"] < LOW_CONF and f["status"] != "CONFIRMED":
+            c.add(GROUP_QUALITY, "LOW_CONFIDENCE", f"{FIELD_LABELS.get(f['field_key'], f['field_key'])} = '{f['value']}' có độ tin cậy "
+                  f"{round(f['confidence'] * 100)}% ({f['method']}). Cần đối chiếu bản gốc và xác nhận.", f["field_key"], f["record_key"], f1=f, blocking=False)
+
+
+def run(conn, voyage_id, user):
+    c = Ctx(conn, voyage_id)
+    check_documents(c)
+    check_wrong_voyage(c)
+    check_vessel(c)
+    check_cargo(c)
+    check_crew(c)
+    check_dg(c)
+    check_quality(c)
+    summary = defaultdict(int)
+    for r in c.results:
+        summary[r["status"]] += 1
+    summary["BLOCKING"] = sum(r["blocking"] for r in c.results)
+    cur = conn.execute("INSERT INTO crosscheck_runs(voyage_id,run_at,run_by,summary_json) VALUES(?,?,?,?)",
+                       (voyage_id, db.now(), user, db.dumps(summary)))
+    run_id = cur.lastrowid
+    conn.execute("DELETE FROM crosscheck_results WHERE voyage_id=?", (voyage_id,))
+    for r in c.results:
+        cols = ",".join(r.keys())
+        conn.execute(f"INSERT INTO crosscheck_results(run_id,voyage_id,{cols}) VALUES(?,?,{','.join('?' * len(r))})",
+                     (run_id, voyage_id, *r.values()))
+    return run_id, dict(summary)
