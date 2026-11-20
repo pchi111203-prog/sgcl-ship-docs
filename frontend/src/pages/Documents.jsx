@@ -48,7 +48,13 @@ export default function Documents() {
     if (!window.confirm(`Xóa chứng từ "${d.original_name}" và toàn bộ dữ liệu trích xuất từ chứng từ này?`)) return
     await api(`/api/documents/${d.id}`, { method: 'DELETE' }); toast('Đã xóa chứng từ'); load()
   }
-  const reprocess = async (d) => { await api(`/api/documents/${d.id}/process`, { method: 'POST' }); load() }
+  const reprocess = async (d) => {
+    const msg = d.status === 'EXTRACTED'
+      ? `Đọc lại "${d.original_name}" từ đầu?\n\nToàn bộ dữ liệu đã trích xuất từ file này (kể cả các trường đã sửa / đã xác nhận) sẽ bị thay bằng kết quả đọc mới và phải xác nhận lại.`
+      : `Xử lý lại "${d.original_name}"?`
+    if (!window.confirm(msg)) return
+    await api(`/api/documents/${d.id}/process`, { method: 'POST' }); load()
+  }
   const replace = (d) => {
     const el = document.createElement('input')
     el.type = 'file'; el.accept = ACCEPT
@@ -88,7 +94,7 @@ export default function Documents() {
             <tbody>
               {docs.map((d) => (
                 <tr key={d.id}>
-                  <td className="wrap-any"><b>{d.original_name}</b><div className="small muted">{d.uploaded_at}</div></td>
+                  <td className="wrap-any" style={{ minWidth: 180 }}><b>{d.original_name}</b><div className="small muted">{d.uploaded_at}</div></td>
                   <td><span className="badge b-gray">{(d.ext || '').replace('.', '').toUpperCase()}</span></td>
                   <td className="small">{fmtSize(d.size)}</td>
                   <td>
@@ -108,7 +114,7 @@ export default function Documents() {
                   <td className="small">{d.n_fields} trường<br />{d.n_records ? <span className="muted">{d.n_records} dòng/bản ghi</span> : null}</td>
                   <td className="right" style={{ whiteSpace: 'nowrap' }}>
                     <button className="btn sm" onClick={() => setView(d)}>Xem</button>{' '}
-                    <button className="btn sm" onClick={() => reprocess(d)} disabled={d.status === 'PROCESSING'}>Xử lý lại</button>{' '}
+                    <button className="btn sm" onClick={() => reprocess(d)} disabled={d.status === 'PROCESSING'} title="Đọc lại file từ đầu (dữ liệu đã sửa/xác nhận của file này sẽ bị thay thế)">Xử lý lại</button>{' '}
                     <button className="btn sm" onClick={() => replace(d)}>Thay file</button>{' '}
                     <button className="btn sm danger" onClick={() => del(d)}>Xóa</button>
                   </td>
