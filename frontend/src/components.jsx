@@ -100,11 +100,18 @@ export function VoyageHeader({ voyage, current }) {
       </div>
       <div className="stepper">
         {WORK_STEPS.map((s, i) => (
-          <Link key={s.key} to={`/voyages/${voyage.id}/${s.path}`} className={`${stepDone[s.key] ? 'done' : ''} ${current === s.key ? 'cur' : ''}`}>
+          <Link key={s.key} to={`/voyages/${voyage.id}/${s.path}`} className={`${stepDone[s.key] ? 'done' : ''} ${current === s.key ? 'cur' : ''}`}
+            title={stepDone[s.key] ? 'Đã hoàn thành' : p.steps.find((x) => x.key === s.key)?.why}>
             <span className="dot">{stepDone[s.key] ? '✓' : i + 1}</span>{s.label}
           </Link>
         ))}
       </div>
+      {p.progress < 100 && p.steps.some((s) => !s.done && s.key !== 'export') && (
+        <div className="alert amber small">
+          <b>Tiến độ {p.progress}% – các bước chưa hoàn thành:</b>
+          <ul>{p.steps.filter((s) => !s.done).map((s) => <li key={s.key}><b>{s.label}:</b> {s.why}</li>)}</ul>
+        </div>
+      )}
     </>
   )
 }

@@ -121,13 +121,18 @@ def voyage_progress(c, v):
             ids = list(plan.used_fields)
             unconfirmed_used = db.row(c, f"SELECT COUNT(*) n FROM extracted_fields WHERE status!='CONFIRMED' AND id IN ({','.join('?' * len(ids))})", ids)["n"]
     steps = [
-        {"key": "create", "label": "Tạo chuyến tàu", "done": True},
-        {"key": "upload", "label": "Tải chứng từ", "done": n_docs > 0},
-        {"key": "extract", "label": "Trích xuất", "done": n_docs > 0 and n_ext == n_docs},
-        {"key": "check", "label": "Đối chiếu", "done": check_fresh and n_docs > 0},
+        {"key": "create", "label": "Tạo chuyến tàu", "done": True, "why": ""},
+        {"key": "upload", "label": "Tải chứng từ", "done": n_docs > 0, "why": "Chưa tải chứng từ nào."},
+        {"key": "extract", "label": "Trích xuất", "done": n_docs > 0 and n_ext == n_docs,
+         "why": f"{n_ext}/{n_docs} chứng từ đã trích xuất" + (f", {n_err} chứng từ lỗi xử lý" if n_err else "") + (f", {n_proc} đang xử lý" if n_proc else "") + "."},
+        {"key": "check", "label": "Đối chiếu", "done": check_fresh and n_docs > 0,
+         "why": "Chưa chạy đối chiếu." if not run else "Dữ liệu đã được sửa sau lần đối chiếu gần nhất - cần chạy lại đối chiếu."},
         # same rule as the export gate: no blocking issue + every field that goes into the NSW file confirmed
-        {"key": "review", "label": "Xác nhận", "done": bool(fstat["n"]) and blocking == 0 and unconfirmed_used == 0},
-        {"key": "export", "label": "Xuất Excel", "done": exports["n"] > 0},
+        {"key": "review", "label": "Xác nhận", "done": bool(fstat["n"]) and blocking == 0 and unconfirmed_used == 0,
+         "why": "; ".join(x for x in [f"còn {blocking} lỗi chặn (Mismatch/Duplicate/Wrong Voyage) chưa xử lý" if blocking else "",
+                                     f"còn {unconfirmed_used} trường sẽ ghi vào Excel chưa xác nhận" if unconfirmed_used else "",
+                                     "chưa có dữ liệu trích xuất" if not fstat["n"] else ""] if x) + "."},
+        {"key": "export", "label": "Xuất Excel", "done": exports["n"] > 0, "why": "Chưa xuất file Excel."},
     ]
     done = sum(s["done"] for s in steps)
     if exports["n"]:

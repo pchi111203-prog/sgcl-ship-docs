@@ -39,7 +39,7 @@ export function VoyageList({ user }) {
                 <td>{v.imo || '—'}</td><td>{v.call_sign || '—'}</td><td>{v.voyage_no || '—'}</td>
                 <td className="small">{v.last_port || '—'} → {v.port_of_arrival || '—'}</td><td className="small">{v.eta || '—'}</td>
                 <td>{v.progress.documents}</td><td><Badge map={VOYAGE_STATUS} value={v.progress.status} /></td>
-                <td><Progress value={v.progress.progress} /></td>
+                <td title={v.progress.steps.filter((s) => !s.done).map((s) => `${s.label}: ${s.why}`).join('\n') || 'Hoàn thành'}><Progress value={v.progress.progress} /></td>
                 <td className="right" style={{ whiteSpace: 'nowrap' }}>
                   <button className="btn sm" onClick={() => nav(`/voyages/${v.id}/edit`)}>Sửa</button>{' '}
                   <button className="btn sm primary" onClick={() => nav(`/voyages/${v.id}/documents`)}>Mở</button>{' '}
