@@ -364,3 +364,15 @@ def test_single_documents_are_not_split():
     for f in samples.generate(4, d):
         pages = ingest.read_document(f)
         assert not splitter.is_combined(splitter.split_pages(pages)), f
+
+
+def test_vessel_name_curly_quote_and_trailing_label():
+    from app import extract
+
+    def read(text):
+        pages = [{"page_no": 1, "method": "docx", "confidence": 1.0, "tables": [], "text": text}]
+        return {k: v["value"] for k, v in extract.extract_header(pages, ["vessel_name", "voyage_no", "imo", "shipper"]).items()}
+    assert read("Vessel’s Name (Tên tàu): MV VINH QUANG GOLD") == {"vessel_name": "VINH QUANG GOLD"}
+    assert read("Vessel: MV VINH QUANG GOLD Inspection Order No.: CISVN 23.188") == {"vessel_name": "VINH QUANG GOLD"}
+    assert read("Ship’s name: M/V VINH QUANG GOLD   IMO No: 9395044") == {"vessel_name": "VINH QUANG GOLD", "imo": "9395044"}
+    assert read("Shipper: Mekong Export Co., Ltd") == {"shipper": "Mekong Export Co., Ltd"}

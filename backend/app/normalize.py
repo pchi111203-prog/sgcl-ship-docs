@@ -12,7 +12,11 @@ MONTHS = {m: i + 1 for i, m in enumerate(["JAN", "FEB", "MAR", "APR", "MAY", "JU
 MONTHS.update({"SEPT": 9})
 
 
+_QUOTES = str.maketrans({"’": "'", "‘": "'", "ʼ": "'", "`": "'", "´": "'", "“": '"', "”": '"'})
+
+
 def strip_accents(s):
+    s = unicodedata.normalize("NFC", s).translate(_QUOTES)  # NFC keeps one character per letter; curly quotes -> straight
     return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn").replace("đ", "d").replace("Đ", "D")
 
 

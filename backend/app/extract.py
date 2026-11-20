@@ -323,12 +323,15 @@ def _label_hits(line, keys):
     return hits
 
 
-_SEP = re.compile(r"^[\s:：\-–=\.\|/]*(?:\((?:[^)]{0,20})\))?[\s:：\-–=\.\|]*")
+_SEP = re.compile(r"^[\s:：\-–=\.\|/)\]]*(?:\((?:[^)]{0,20})\))?[\s:：\-–=\.\|)\]]*")
+# an unknown label further on the same line: 1-3 Title-case words + ':' (e.g. " Inspection Order No.: ...")
+_NEXT_LABEL = re.compile(r"\s+(?:[A-ZĐ][a-zà-ỹđ]+\.?\s?){1,3}(?:No\.?|Number)?\s*[:：]\s")
 
 
 def _clean_value(v):
     v = _SEP.sub("", v or "").strip()
-    v = re.split(r"\s*\|\s*", v)[0]  # "VINH QUANG GOLD | Số chuyến: 09/2023" -> next field starts after '|' 
+    v = re.split(r"\s*\|\s*", v)[0]
+    v = _NEXT_LABEL.split(v)[0]  # "VINH QUANG GOLD | Số chuyến: 09/2023" -> next field starts after '|' 
     v = re.sub(r"\s{2,}", " ", v)
     return v.strip(" |;,")
 
@@ -411,6 +414,8 @@ def _post_header(k, v):
         # sentence fragments ("at the port of ...") are not vessel names
         if re.match(r"^(AT|IN|ON|TO|FROM|OF|FOR|WITH|AND|THE|IS|WAS|WILL|SHALL|HAS|BY|AS|ARRIV\w*|DEPART\w*)\b", N.strip_accents(v).upper()):
             return None
+        if not re.match(r"^[A-Z0-9]", N.strip_accents(v).upper()) or re.match(r"^'?S\s+NAME\b", N.strip_accents(v).upper()):
+            return None  # "'s Name (" = leftover of the label "Vessel's Name", not a name
     if k == "voyage_no":
         v = v.split()[0] if v.split() else v
         if not re.search(r"\d", v):  # a voyage number always contains digits ("AGE", "OF" ... are reading errors)
