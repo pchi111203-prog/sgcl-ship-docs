@@ -42,7 +42,7 @@ def startup():
 def current_user(authorization: str = Header(default="")):
     token = authorization.replace("Bearer ", "").strip()
     with db.tx() as c:
-        limit = (datetime.now() - timedelta(hours=SESSION_HOURS)).strftime("%Y-%m-%d %H:%M:%S")
+        limit = (db.local_now() - timedelta(hours=SESSION_HOURS)).strftime("%Y-%m-%d %H:%M:%S")
         c.execute("DELETE FROM sessions WHERE created_at < ?", (limit,))
         u = db.row(c, "SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=?", (token,))
     if not u:
@@ -239,7 +239,7 @@ def _create_voyage(c, data: dict, user, is_sample=False):
                     f"VALUES(?,{','.join('?' * len(VOYAGE_COLS))},'NEW',?,?,?,?)",
                     ("TMP-" + secrets.token_hex(6), *[data.get(k) for k in VOYAGE_COLS], 1 if is_sample else 0, user, db.now(), db.now()))
     vid = cur.lastrowid
-    code = f"{'SAMPLE' if is_sample else 'SGCL'}-{datetime.now():%y%m}-{vid:04d}"
+    code = f"{'SAMPLE' if is_sample else 'SGCL'}-{db.local_now():%y%m}-{vid:04d}"
     c.execute("UPDATE voyages SET voyage_code=? WHERE id=?", (code, vid))
     db.log(c, vid, "CREATE_VOYAGE", user, reason=code)
     return vid
@@ -739,7 +739,7 @@ def do_export(vid: int, body: ExportIn, u=Depends(current_user)):
                 raise HTTPException(403, "Xác nhận ngoại lệ thất bại: cần tài khoản Supervisor hợp lệ")
             override_by = sup["username"]
         plan, _ = nsw_export.build_plan(c, vid)
-    name = f"NSW_{v['voyage_code']}_{(v['vessel_name'] or 'VESSEL').replace(' ', '_')}_{datetime.now():%Y%m%d_%H%M%S}.xlsx"
+    name = f"NSW_{v['voyage_code']}_{(v['vessel_name'] or 'VESSEL').replace(' ', '_')}_{db.local_now():%Y%m%d_%H%M%S}.xlsx"
     stored = f"{vid}_{secrets.token_hex(6)}.xlsx"
     out = os.path.join(db.EXPORT_DIR, stored)
     try:

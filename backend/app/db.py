@@ -123,8 +123,14 @@ CREATE TABLE IF NOT EXISTS exports (
 """
 
 
+def local_now():
+    """Current time in the company's time zone (servers such as Railway run in UTC)."""
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo(os.environ.get("SGCL_TZ", "Asia/Ho_Chi_Minh"))).replace(tzinfo=None)
+
+
 def now():
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return local_now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def connect():
