@@ -114,12 +114,19 @@ def voyage_progress(c, v):
     issues = db.row(c, "SELECT COUNT(*) n FROM crosscheck_results WHERE voyage_id=? AND status NOT IN ('PASSED','NOT_AVAILABLE','NOT_ENOUGH_DATA') AND acknowledged=0", (vid,))["n"]
     exports = db.row(c, "SELECT COUNT(*) n, MAX(created_at) last FROM exports WHERE voyage_id=?", (vid,))
     check_fresh = bool(run) and not (fstat["m"] and fstat["m"] > run["run_at"])
+    unconfirmed_used = 0
+    if fstat["n"]:
+        plan, _ = nsw_export.build_plan(c, vid)
+        if plan.used_fields:
+            ids = list(plan.used_fields)
+            unconfirmed_used = db.row(c, f"SELECT COUNT(*) n FROM extracted_fields WHERE status!='CONFIRMED' AND id IN ({','.join('?' * len(ids))})", ids)["n"]
     steps = [
         {"key": "create", "label": "Tạo chuyến tàu", "done": True},
         {"key": "upload", "label": "Tải chứng từ", "done": n_docs > 0},
         {"key": "extract", "label": "Trích xuất", "done": n_docs > 0 and n_ext == n_docs},
         {"key": "check", "label": "Đối chiếu", "done": check_fresh and n_docs > 0},
-        {"key": "review", "label": "Xác nhận", "done": bool(fstat["n"]) and fstat["conf"] == fstat["n"] and blocking == 0},
+        # same rule as the export gate: no blocking issue + every field that goes into the NSW file confirmed
+        {"key": "review", "label": "Xác nhận", "done": bool(fstat["n"]) and blocking == 0 and unconfirmed_used == 0},
         {"key": "export", "label": "Xuất Excel", "done": exports["n"] > 0},
     ]
     done = sum(s["done"] for s in steps)
@@ -129,12 +136,12 @@ def voyage_progress(c, v):
         status = "NEW"
     elif n_proc:
         status = "PROCESSING"
-    elif blocking or n_err or (fstat["n"] and fstat["conf"] != fstat["n"]) or not check_fresh:
+    elif blocking or n_err or unconfirmed_used or not check_fresh:
         status = "IN_REVIEW"
     else:
         status = "READY"
     return {"steps": steps, "progress": round(done / len(steps) * 100), "status": status, "documents": n_docs, "extracted": n_ext,
-            "errors": n_err, "fields": fstat["n"], "confirmed": fstat["conf"] or 0, "blocking": blocking, "issues": issues,
+            "errors": n_err, "fields": fstat["n"], "confirmed": fstat["conf"] or 0, "unconfirmed_export": unconfirmed_used, "blocking": blocking, "issues": issues,
             "exports": exports["n"], "last_export": exports["last"], "last_check": run["run_at"] if run else None, "check_fresh": check_fresh}
 
 

@@ -81,6 +81,7 @@ def test_scenario1_consistent_set_exports():
     rep = r.json()["report"]
     failed = [c for c in rep["checks"] if not c["ok"]]
     assert not failed, failed
+    assert client.get(f"/api/voyages/{vid}", headers=H).json()["progress"]["progress"] == 100
     assert rep["rows"]["Crew list"] == 22 and rep["rows"]["Goods Declaration"] == 6
     # read back the file
     import openpyxl, warnings
