@@ -114,6 +114,7 @@ H = {
     "net_weight": ("Net weight", [r"net\s+weight", r"\bn\s*\.?\s*w\.?\b(?=\s*[:\-\s]\s*\d)"]),
     "measurement": ("Measurement", [r"measurement", r"\bvolume\b", r"\bcbm\b(?=\s*[:\-])"]),
     "description": ("Description of goods", [r"description\s+of\s+(the\s+)?goods", r"description\s+of\s+packages\s+and\s+goods", r"kind\s+of\s+packages;?\s*description\s+of\s+goods", r"\bcommodity\b", r"m[oô]\s+t[aả]\s+h[aà]ng"]),
+    "container_type": ("Loại container", [r"size\s*/\s*type", r"cont(ainer)?\.?\s*type", r"equipment\s*type", r"container\s+size"]),
     "date_of_bl": ("Ngày phát hành B/L", [r"(shipped\s+on\s+board|on\s+board)\s+date", r"date\s+of\s+(b\s*/\s*l|issue)"]),
 }
 
@@ -136,7 +137,7 @@ DOC_HEADER_FIELDS = {
     "OTHER": ["vessel_name", "imo", "call_sign", "flag", "voyage_no"],
 }
 BL_HEADER_FIELDS = ["bl_no", "shipper", "consignee", "notify", "port_of_loading", "port_of_discharge", "place_of_delivery",
-                    "description", "packages", "gross_weight", "net_weight", "measurement", "date_of_bl"]
+                    "description", "packages", "gross_weight", "net_weight", "measurement", "date_of_bl", "container_type"]
 MULTILINE_PARTY = {"shipper", "consignee", "notify"}
 DATE_FIELDS = {"eta", "etd", "date_of_issue", "date_of_bl", "dob", "passport_expiry", "seaman_book_expiry"}
 
@@ -183,6 +184,7 @@ T = {
         "net_weight": [r"net\s*weight", r"^n\.?\s*w\.?"],
         "measurement": [r"measurement", r"volume", r"cbm", r"^m3$", r"th[eể]\s+t[ií]ch"],
         "container_no": [r"container", r"\bcntr", r"\bctnr", r"s[oố]\s+cont"],
+        "container_type": [r"cont(ainer)?\.?\s*type", r"size\s*/?\s*type", r"^size$", r"^sz\s*/?\s*tp", r"equipment", r"^eqp", r"lo[aạ]i\s+cont"],
         "seal_no": [r"seal"],
         "pol": [r"port\s+of\s+loading", r"^pol$", r"loading"],
         "pod": [r"port\s+of\s+discharge", r"^pod$", r"discharg"],
@@ -229,7 +231,7 @@ FIELD_LABELS = {
     "gender": "Giới tính / Gender", "passport_no": "Số hộ chiếu / Passport No.", "passport_expiry": "Hạn hộ chiếu / Expiry",
     "seaman_book_no": "Sổ thuyền viên / Seaman book", "passport_type": "Loại giấy tờ", "port_embark": "Cảng lên tàu",
     "port_disembark": "Cảng rời tàu", "transit": "Quá cảnh", "marks": "Marks", "package_kind": "Loại kiện",
-    "container_no": "Số container", "seal_no": "Số seal", "pol": "Cảng xếp hàng (POL)", "pod": "Cảng dỡ hàng (POD)",
+    "container_no": "Số container", "container_type": "Loại cont (20/40/45)", "seal_no": "Số seal", "pol": "Cảng xếp hàng (POL)", "pod": "Cảng dỡ hàng (POD)",
     "hs_code": "HS code", "un_no": "UN No.", "imdg_class": "IMDG Class", "proper_shipping_name": "Proper shipping name",
     "packing_group": "Packing group", "subsidiary_risk": "Subsidiary risk", "flash_point": "Flash point",
     "marine_pollutant": "Marine pollutant", "stowage": "Vị trí xếp", "article": "Tên vật phẩm", "quantity": "Số lượng",
@@ -465,6 +467,12 @@ def extract_table(pages, section):
                 for f, u in units.items():
                     if f in fields and not re.search(r"[A-Za-z]{2,}", fields[f]["value"]):
                         fields[f + "_unit"] = {**fields[f], "value": u, "method": fields[f]["method"] + "-header-unit"}
+                if section == "cargo" and "container_type" not in fields and "container_no" in fields:
+                    # size written inside another cell, e.g. "SEGU1234567 / 40HC"
+                    ct = N.container_size(" ".join(c for i, c in enumerate(r) if mapping.get(i) not in ("gross_weight", "net_weight", "measurement", "packages")))
+                    if ct:
+                        fields["container_type"] = {**fields["container_no"], "value": ct, "confidence": 0.85,
+                                                    "method": fields["container_no"]["method"] + "-size-regex"}
                 # skip signature/footer lines
                 if len(fields) < 2:
                     continue
@@ -505,6 +513,11 @@ def extract_bl_document(pages):
                 seals.append(m.group(1))
         if seals:
             rec["seal_no"] = {"value": ", ".join(seals), "page_no": page_no, "confidence": 0.85, "method": "regex"}
+    if "container_type" not in rec:
+        sizes = N.container_sizes(text)
+        if sizes:
+            rec["container_type"] = {"value": ", ".join(sizes), "page_no": pages[0]["page_no"],
+                                     "confidence": 0.85 if pages[0]["method"] != "ocr" else 0.7, "method": "size-regex"}
     for k in ("pol", "pod"):
         if k in rec:
             rec.pop(k)
@@ -552,6 +565,9 @@ def normalise_field(key, value):
     if key in ("container_no",):
         parts = [N.norm_id(x) for x in re.split(r"[,;/\n]+|\s{2,}", v) if x.strip()]
         return ", ".join(p for p in parts if p)
+    if key == "container_type":
+        sizes = N.container_sizes(v)
+        return ", ".join(sizes) if sizes else v
     if key in ("bl_no", "call_sign"):
         return re.sub(r"\s+", "", v).upper()
     return re.sub(r"\s+", " ", v)

@@ -307,3 +307,46 @@ def suggest_package(v):
     if k in CODES["package_kinds"]:
         return k
     return PACKAGE_SYNONYMS.get(k)
+
+
+# ---------------------------------------------------------------- container size / type
+# "1x40HC", "20GP", "40' HQ", "45 FT HC", ISO 6346 size-type codes "22G1", "45G1", "L5G1".
+# ISO first character = length: 2 = 20 ft, 4 = 40 ft, L = 45 ft (45G1 is a 40 ft high cube!).
+_CT_TEXT = re.compile(r"(?<![\d.,])(?:\d+\s*[X×]\s*)?(20|40|45)\s*(?:'|’|FT\b|FEET\b)?\s*(GP|DC|DV|HC|HQ|RF|RH|OT|FR|TK|ST|STD|NOR|DRY|REEFER|HIGH\s*CUBE)\b"
+                      r"|(?<![\d.,])(20|40|45)\s*(?:'|’|FT\b|FEET\b|FOOT\b)", re.I)
+_CT_ISO = re.compile(r"\b([24L])([0-9])([GRUPTHBVS])([0-9])\b")
+
+
+def container_size(text):
+    """Return the NSW container-type value ('Container 20/40/45') found in text, or None."""
+    if not text:
+        return None
+    up = strip_accents(str(text)).upper()
+    m = _CT_TEXT.search(up)
+    size = (m.group(1) or m.group(3)) if m else None
+    if not size:
+        m = _CT_ISO.search(up)
+        if m:
+            size = {"2": "20", "4": "40", "L": "45"}[m.group(1)]
+    if not size:
+        return None
+    code = f"Container {size}"
+    if CODES["container_types"] and code not in CODES["container_types"]:
+        return None
+    return code
+
+
+def container_sizes(text):
+    """All container types mentioned in a text, in order, without duplicates."""
+    out = []
+    up = strip_accents(str(text or "")).upper()
+    for m in list(_CT_TEXT.finditer(up)):
+        c = f"Container {m.group(1) or m.group(3)}"
+        if c not in out:
+            out.append(c)
+    if not out:
+        for m in _CT_ISO.finditer(up):
+            c = f"Container {({'2': '20', '4': '40', 'L': '45'})[m.group(1)]}"
+            if c not in out:
+                out.append(c)
+    return out

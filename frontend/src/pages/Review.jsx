@@ -5,7 +5,7 @@ import { Badge, CHECK_STATUS, Conf, FIELD_STATUS, Modal, Spinner, useToast, useV
 
 const SECTIONS = [
   { key: 'vessel', label: 'Tàu & chuyến tàu' },
-  { key: 'cargo', label: 'Hàng hóa / B/L', cols: ['bl_no', 'shipper', 'consignee', 'notify', 'description', 'packages', 'package_kind', 'gross_weight', 'gross_weight_unit', 'measurement', 'container_no', 'seal_no', 'pol', 'pod'] },
+  { key: 'cargo', label: 'Hàng hóa / B/L', cols: ['bl_no', 'shipper', 'consignee', 'notify', 'description', 'packages', 'package_kind', 'gross_weight', 'gross_weight_unit', 'measurement', 'container_no', 'container_type', 'seal_no', 'pol', 'pod'], always: ['container_type'] },
   { key: 'crew', label: 'Thuyền viên', cols: ['full_name', 'family_name', 'given_name', 'rank', 'nationality', 'dob', 'pob', 'gender', 'passport_no', 'passport_expiry', 'seaman_book_no'] },
   { key: 'passenger', label: 'Hành khách', cols: ['full_name', 'family_name', 'given_name', 'nationality', 'dob', 'pob', 'gender', 'passport_no', 'passport_expiry', 'port_embark', 'port_disembark', 'transit'] },
   { key: 'dg', label: 'Hàng nguy hiểm', cols: ['bl_no', 'container_no', 'seal_no', 'un_no', 'imdg_class', 'proper_shipping_name', 'packing_group', 'packages', 'gross_weight', 'stowage'] },
@@ -87,12 +87,27 @@ export default function Review() {
           </div>
         </div>
         {fields.length === 0 ? <div className="empty">Không có dữ liệu cho nhóm này (Not Available in Source). {tab !== 'vessel' && 'Có thể thêm dòng nhập tay nếu chứng từ có nhưng hệ thống không đọc được.'}</div>
-          : tab === 'vessel' ? <VesselTable fields={visible} save={save} confirm={confirm} /> : <RecordTable fields={visible} cols={sec.cols} labels={data.labels} save={save} confirm={confirm} reload={load} />}
+          : tab === 'vessel' ? <VesselTable fields={visible} save={save} confirm={confirm} /> : <RecordTable fields={visible} cols={sec.cols} always={sec.always} labels={data.labels} save={save} confirm={confirm} reload={() => { load(); reload() }} voyageId={id} />}
       </div>
       {adding && <AddRecord section={sec} labels={data.labels} voyageId={id} onClose={() => setAdding(false)} onDone={() => { setAdding(false); load(); reload() }} />}
       {showLog && <LogModal voyageId={id} onClose={() => setShowLog(false)} />}
     </>
   )
+}
+
+const CT_OPTIONS = ['', 'Container 20', 'Container 40', 'Container 45', 'Other']
+
+function AddCtype({ rec, voyageId, reload }) {
+  const toast = useToast()
+  const add = async (value) => {
+    if (!value) return
+    try {
+      await api(`/api/voyages/${voyageId}/fields`, { method: 'POST', body: { document_id: rec.docId, section: 'cargo', record_key: rec.recordKey, field_key: 'container_type', value } })
+      toast('Đã chọn loại container – cần xác nhận dòng này'); reload()
+    } catch (e) { toast(e.message, 'err') }
+  }
+  return <select className="cell" value="" onChange={(e) => add(e.target.value)} style={{ minWidth: 140, borderColor: '#f59e0b', background: 'var(--amber-bg)' }}
+    title="Chứng từ không ghi loại container – chọn sau khi kiểm tra bản gốc">{CT_OPTIONS.map((o) => <option key={o} value={o}>{o || '— chưa có, chọn —'}</option>)}</select>
 }
 
 function EditCell({ f, save, wide }) {
@@ -101,6 +116,19 @@ function EditCell({ f, save, wide }) {
   const bad = f.flags.some((x) => BAD.includes(x))
   const style = { borderColor: bad ? 'var(--red)' : f.low_confidence && f.status !== 'CONFIRMED' ? '#f59e0b' : undefined,
     background: bad ? 'var(--red-bg)' : f.low_confidence && f.status !== 'CONFIRMED' ? 'var(--amber-bg)' : undefined, minWidth: wide ? 220 : 110 }
+  if (f.field_key === 'container_type') {
+    const opts = CT_OPTIONS.includes(f.value || '') ? CT_OPTIONS : [f.value, ...CT_OPTIONS]
+    return (
+      <div>
+        <select className="cell" value={f.value || ''} style={{ ...style, minWidth: 140 }} onChange={(e) => save(f, e.target.value)}
+          title={`Nguồn: ${f.doc_name || 'Nhập tay'}${f.page_no ? ` – trang ${f.page_no}` : ''} · ${f.method || ''}`}>
+          {opts.map((o) => <option key={o} value={o}>{o || '— chọn —'}</option>)}
+        </select>
+        {f.original_value != null && f.original_value !== f.value && <div className="orig" style={{ textDecoration: 'none' }} title="Ký hiệu gốc trong chứng từ">gốc: {f.original_value}</div>}
+        {f.method === 'manual' && <div className="small muted">nhân viên chọn</div>}
+      </div>
+    )
+  }
   return (
     <div>
       <input className="cell" value={v} style={style} onChange={(e) => setV(e.target.value)} onBlur={() => save(f, v)} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
@@ -134,14 +162,14 @@ function VesselTable({ fields, save, confirm }) {
   )
 }
 
-function RecordTable({ fields, cols, labels, save, confirm, reload }) {
+function RecordTable({ fields, cols, always = [], labels, save, confirm, reload, voyageId }) {
   const recs = new Map()
   for (const f of fields) {
     const k = `${f.document_id || 'm'}|${f.record_key}`
-    if (!recs.has(k)) recs.set(k, { key: k, doc: f.doc_name, manual: !f.document_id, page: f.page_no, idx: f.record_index, f: {} })
+    if (!recs.has(k)) recs.set(k, { key: k, doc: f.doc_name, docId: f.document_id, recordKey: f.record_key, manual: !f.document_id, page: f.page_no, idx: f.record_index, f: {} })
     recs.get(k).f[f.field_key] = f
   }
-  const present = cols.filter((c) => fields.some((f) => f.field_key === c))
+  const present = cols.filter((c) => always.includes(c) || fields.some((f) => f.field_key === c))
   const extra = [...new Set(fields.map((f) => f.field_key))].filter((c) => !cols.includes(c) && c !== 'seq')
   const shownCols = [...present, ...extra]
   const delManual = async (r) => {
@@ -159,7 +187,7 @@ function RecordTable({ fields, cols, labels, save, confirm, reload }) {
           <tr key={r.key}>
             <td className="small muted">{i + 1}</td>
             <td className="small" style={{ minWidth: 140 }}>{r.manual ? <span className="badge b-blue">Nhập tay</span> : r.doc}{r.page ? <div className="muted">trang {r.page}</div> : null}</td>
-            {shownCols.map((c) => <td key={c}>{r.f[c] ? <><EditCell f={r.f[c]} save={save} wide={['full_name', 'shipper', 'consignee', 'description', 'proper_shipping_name', 'article', 'effects', 'notify'].includes(c)} />{r.f[c].confidence != null && r.f[c].low_confidence ? <Conf value={r.f[c].confidence} method={r.f[c].method} /> : null}</> : <span className="faint small">—</span>}</td>)}
+            {shownCols.map((c) => <td key={c}>{r.f[c] ? <><EditCell f={r.f[c]} save={save} wide={['full_name', 'shipper', 'consignee', 'description', 'proper_shipping_name', 'article', 'effects', 'notify'].includes(c)} />{r.f[c].confidence != null && r.f[c].low_confidence ? <Conf value={r.f[c].confidence} method={r.f[c].method} /> : null}</> : c === 'container_type' && r.f.container_no ? <AddCtype rec={r} voyageId={voyageId} reload={reload} /> : <span className="faint small">—</span>}</td>)}
             <td>{done ? <span className="badge b-green">Đã xác nhận</span> : <span className="badge b-gray">Chưa</span>}{fs.some((f) => f.flags.some((x) => BAD.includes(x))) && <div><span className="badge b-red">Sai lệch</span></div>}</td>
             <td className="right" style={{ whiteSpace: 'nowrap' }}>{done ? <button className="btn sm ghost" onClick={() => confirm(fs.map((f) => f.id), false)}>Bỏ</button>
               : <button className="btn sm" onClick={() => confirm(fs.filter((f) => f.status !== 'CONFIRMED').map((f) => f.id))}>✓ Xác nhận dòng</button>}

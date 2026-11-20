@@ -106,7 +106,7 @@ VESSEL_CHECKS = [
 CARGO_CHECKS = [
     ("shipper", "company"), ("consignee", "company"), ("notify", "company"), ("description", "text"),
     ("packages", "number"), ("gross_weight", "weight"), ("measurement", "number"),
-    ("container_no", "set"), ("seal_no", "set"), ("pol", "port"), ("pod", "port"),
+    ("container_no", "set"), ("container_type", "set"), ("seal_no", "set"), ("pol", "port"), ("pod", "port"),
 ]
 
 

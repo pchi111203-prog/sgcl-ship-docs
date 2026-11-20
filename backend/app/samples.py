@@ -65,7 +65,9 @@ def _cargo(seed, n=6):
                         gw=f"{rnd.randint(8000, 26000):,}.{rnd.randint(0,99):02d}", meas=f"{rnd.randint(20, 66)}.{rnd.randint(0,9)}",
                         cont=_iso_container(rnd.choice(["MSKU", "TGHU", "CAIU", "SEGU"]), rnd.randint(100000, 999999)),
                         seal=f"SL{rnd.randint(100000, 999999)}", pol="SINGAPORE (SGSIN)", pod="CAT LAI, HO CHI MINH (VNCLI)",
-                        un="1263" if "PAINT" in g else None))
+                        un="1263" if "PAINT" in g else None,
+                        # manifest uses ISO size-type codes, B/L uses trade wording; last line has no size (to be chosen by staff)
+                        ctype=["45G1", "22G1", "40HC", "22G1", "45G1", ""][i % 6], ctype_bl=["40HC", "20GP", "40HC", "20GP", "40HC", ""][i % 6]))
     return out
 
 
@@ -125,9 +127,9 @@ def gen_tonnage(path, v, imo=None):
 def gen_manifest(path, v, cargo):
     story = _kv(["<b>CARGO MANIFEST</b>", f"Vessel name: {v['name']}   Voyage No: {v['voyage']}", "Port of loading: SINGAPORE   Port of discharge: HO CHI MINH", ""])
     hdr = ["B/L No.", "Shipper", "Consignee", "Notify party", "Description of goods", "No. of packages", "Kind of packages",
-           "Gross weight (KGS)", "Measurement (CBM)", "Container No.", "Seal No.", "Port of loading", "Port of discharge"]
+           "Gross weight (KGS)", "Measurement (CBM)", "Container No.", "Cont. type", "Seal No.", "Port of loading", "Port of discharge"]
     rws = [[c["bl"], Paragraph(c["shipper"], STY["Normal"]), Paragraph(c["consignee"], STY["Normal"]), c["notify"], Paragraph(c["desc"], STY["Normal"]),
-            c["pkgs"], c["kind"], c["gw"], c["meas"], c["cont"], c["seal"], c["pol"], c["pod"]] for c in cargo]
+            c["pkgs"], c["kind"], c["gw"], c["meas"], c["cont"], c["ctype"], c["seal"], c["pol"], c["pod"]] for c in cargo]
     for r in rws:
         for i in (1, 2, 4):
             r[i] = r[i].text
@@ -140,7 +142,7 @@ def gen_bl(path, v, c, vessel_name=None, voyage=None, gw=None, cont=None):
              "Notify party:", c["notify"], "", f"Ocean vessel: {vessel_name or v['name']}", f"Voyage No: {voyage or v['voyage']}",
              f"Port of loading: {c['pol']}", f"Port of discharge: {c['pod']}", "",
              f"Description of goods: {c['desc']}", f"Number of packages: {c['pkgs']} {c['kind']}", f"Gross weight: {gw or c['gw']} KGS",
-             f"Measurement: {c['meas']} CBM", f"Container / Seal: {cont or c['cont']} / {c['seal']}", "", "SHIPPED ON BOARD 05/11/2026",
+             f"Measurement: {c['meas']} CBM", f"Container / Seal: {cont or c['cont']} / {c['seal']}"] + ([f"Size/Type: {c['ctype_bl']}"] if c["ctype_bl"] else []) + ["", "SHIPPED ON BOARD 05/11/2026",
              "FREIGHT PREPAID"]
     _doc(path, _kv(lines))
 

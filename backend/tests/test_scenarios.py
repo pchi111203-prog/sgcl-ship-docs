@@ -70,6 +70,16 @@ def test_scenario1_consistent_set_exports():
     assert any(r["status"] == "PASSED" and r["field_key"] == "crew_count" for r in res)
     rd = client.get(f"/api/voyages/{vid}/export/readiness", headers=H).json()
     assert not rd["ready"] and rd["unconfirmed_count"] > 0  # must confirm first
+    # container type: 5 lines read from the manifest (ISO codes), line 6 has none -> warning, staff chooses
+    assert any("1 dòng chưa có loại container" in w for w in rd["warnings"]), rd["warnings"]
+    fields = client.get(f"/api/voyages/{vid}/fields", headers=H).json()["fields"]
+    mf = [f for f in fields if f["doc_type"] == "CARGO_MANIFEST" and f["section"] == "cargo"]
+    ct = {f["record_key"]: (f["original_value"], f["value"]) for f in mf if f["field_key"] == "container_type"}
+    assert ct["mf:1"] == ("45G1", "Container 40") and ct["mf:2"] == ("22G1", "Container 20") and "mf:6" not in ct
+    assert any(r["status"] == "PASSED" and r["field_key"] == "container_type" for r in res)
+    r6 = client.post(f"/api/voyages/{vid}/fields", headers=H, json={"document_id": mf[0]["document_id"], "section": "cargo",
+                                                                      "record_key": "mf:6", "field_key": "container_type", "value": "Container 20"})
+    assert r6.status_code == 200, r6.text
     confirm_all(vid)
     results(vid)
     client.put(f"/api/voyages/{vid}/export/options", json={"sign_place": "TP. Hồ Chí Minh", "sign_date": "19/11/2026",
@@ -99,6 +109,8 @@ def test_scenario1_consistent_set_exports():
     assert wb["General Declaration"]["B6"].value == "SINGAPORE"
     assert wb["Goods Declaration"]["A10"].value.startswith("SGCL1")
     assert wb["Goods Declaration"]["O10"].value == "KGM"
+    assert wb["Goods Declaration"]["V10"].value == "Container 40" and wb["Goods Declaration"]["V11"].value == "Container 20"
+    assert wb["Goods Declaration"]["V15"].value == "Container 20"  # chosen by staff
     assert wb["Goods Declaration"]["P10"].value == "VNCLI" and wb["Goods Declaration"]["R10"].value == "SGSIN"
     assert wb["Passenger list"]["A11"].value is None  # sample row cleared, no passengers
     eff = wb["Crew's Effects Declaration"]

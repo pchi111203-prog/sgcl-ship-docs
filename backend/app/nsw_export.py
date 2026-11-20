@@ -355,6 +355,7 @@ def _goods(plan, data):
         recs = data.records("cargo", ["BILL_OF_LADING"])
         if recs:
             plan.warnings.append("Goods Declaration: không có Cargo Manifest - dữ liệu lấy từ các B/L.")
+    missing_ct = []
     for rec in recs:
         cont = _v(rec, "container_no")
         if cont and "," in cont:
@@ -370,12 +371,26 @@ def _goods(plan, data):
             "O": _coded(plan, data, sheet, "unit", gwu, "đơn vị trọng lượng") if gwu else None,
             "P": _coded(plan, data, sheet, "locode", _v(rec, "pod"), "cảng dỡ hàng"),
             "R": _coded(plan, data, sheet, "locode", _v(rec, "pol"), "cảng xếp hàng"),
+            "V": _ctype(plan, rec, missing_ct),
             "W": _coded(plan, data, sheet, "unit", mu, "đơn vị thể tích") if mu else None,
-        }, [rec.get(k) for k in ("bl_no", "shipper", "consignee", "notify", "container_no", "seal_no", "hs_code", "description", "net_weight",
-                                 "gross_weight", "measurement", "pod", "pol", "gross_weight_unit", "measurement_unit")], data,
+        }, [rec.get(k) for k in ("bl_no", "shipper", "consignee", "notify", "container_no", "container_type", "seal_no", "hs_code", "description",
+                                 "net_weight", "gross_weight", "measurement", "pod", "pol", "gross_weight_unit", "measurement_unit")], data,
             extra={"_packages": _v(rec, "packages"), "_kind_code": kind})
-    if recs:
-        plan.warnings.append("Goods Declaration cột V 'Loại cont' (bắt buộc): chứng từ không ghi loại container 20/40/45 → để trống, cần bổ sung.")
+    if missing_ct:
+        plan.warnings.append(f"Goods Declaration cột V 'Loại cont' (bắt buộc): {len(missing_ct)} dòng chưa có loại container "
+                             f"(B/L {', '.join(missing_ct[:8])}{'…' if len(missing_ct) > 8 else ''}) → chọn tại Kiểm tra và xác nhận › tab Hàng hóa.")
+
+
+def _ctype(plan, rec, missing):
+    v = _v(rec, "container_type")
+    valid = N.CODES["container_types"] or ["Container 20", "Container 40", "Container 45", "Other"]
+    if v in valid:
+        return v
+    if v:
+        plan.warnings.append(f"Goods Declaration: B/L {_v(rec, 'bl_no')} có loại container '{v}' (nhiều loại trên 1 dòng hoặc không đúng danh mục) "
+                             "→ cần chọn một loại tại Kiểm tra và xác nhận.")
+    missing.append(_v(rec, "bl_no") or "?")
+    return None
 
 
 def _dg(plan, data):

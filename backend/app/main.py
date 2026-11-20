@@ -589,6 +589,36 @@ def add_record(vid: int, body: RecordIn, u=Depends(current_user)):
     return {"ok": True}
 
 
+class FieldAdd(BaseModel):
+    document_id: int | None = None
+    section: str
+    record_key: str
+    field_key: str
+    value: str
+
+
+@app.post("/api/voyages/{vid}/fields")
+def add_field(vid: int, body: FieldAdd, u=Depends(current_user)):
+    """Staff adds a value missing from an existing record (e.g. container type not printed on the manifest)."""
+    if body.field_key not in extract.FIELD_LABELS or not body.value.strip():
+        raise HTTPException(400, "Trường hoặc giá trị không hợp lệ")
+    with db.tx() as c:
+        rec = db.row(c, "SELECT * FROM extracted_fields WHERE voyage_id=? AND section=? AND record_key=? AND document_id IS ? LIMIT 1",
+                     (vid, body.section, body.record_key, body.document_id))
+        if not rec:
+            raise HTTPException(404, "Không tìm thấy bản ghi")
+        if db.row(c, "SELECT id FROM extracted_fields WHERE voyage_id=? AND section=? AND record_key=? AND document_id IS ? AND field_key=?",
+                  (vid, body.section, body.record_key, body.document_id, body.field_key)):
+            raise HTTPException(409, "Trường này đã có - hãy sửa giá trị hiện có")
+        cur = c.execute("INSERT INTO extracted_fields(voyage_id,document_id,section,record_key,record_index,field_key,field_label,original_value,value,"
+                        "page_no,confidence,method,status,updated_at) VALUES(?,?,?,?,?,?,?,NULL,?,NULL,NULL,'manual','EDITED',?)",
+                        (vid, body.document_id, body.section, body.record_key, rec["record_index"], body.field_key,
+                         extract.FIELD_LABELS[body.field_key], body.value.strip(), db.now()))
+        db.log(c, vid, "ADD_FIELD_VALUE", u["username"], cur.lastrowid, body.field_key, None, body.value.strip(),
+               f"Bổ sung cho {body.record_key} (không có trong chứng từ)")
+    return {"ok": True, "id": cur.lastrowid}
+
+
 @app.delete("/api/fields/{fid}")
 def delete_manual_field(fid: int, u=Depends(current_user)):
     with db.tx() as c:

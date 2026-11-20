@@ -48,7 +48,7 @@ Quy ước chung các sheet bản khai: **A = nhãn (Việt/Anh), B = giá trị
 | Q4 | Mã cảng (UN/LOCODE) cho Goods Declaration P/R, DG B6/B7: lấy từ danh mục nào? | Lấy mã 5 ký tự có trong chứng từ; nếu không có → ghi nguyên văn + cảnh báo, nhân viên nhập mã |
 | Q5 | “List of House bill of lading”: làm sao phân biệt House B/L và Master B/L trong bộ chứng từ của SGCL? | Chưa điền, chỉ xóa mẫu |
 | Q6 | B14–B19 GD/NOA (“số bản” các bản khai kèm theo): ghi số lượng bản hay 1/0? | Để trống, nhập tay nếu cần |
-| Q7 | Goods Declaration: 1 dòng / container hay 1 dòng / B/L khi 1 B/L có nhiều container? Cột V “Loại cont” bắt buộc nhưng chứng từ thường không ghi 20/40/45 | 1 dòng / dòng manifest; cột V để trống + cảnh báo |
+| Q7 | Goods Declaration: 1 dòng / container hay 1 dòng / B/L khi 1 B/L có nhiều container? Cột V “Loại cont” bắt buộc nhưng chứng từ thường không ghi 20/40/45 | 1 dòng / dòng manifest. Cột V: tự nhận diện từ chứng từ (20GP/40HC/45HC, mã ISO 22G1/45G1/L5G1, cột Size/Type); thiếu thì nhân viên chọn ở tab Hàng hóa |
 | Q8 | Sheet ẩn “Cargo manifest” có còn dùng không? | Giữ ẩn, chỉ xóa mẫu |
 | Q9 | Bảng chất thải (A38:C43) và nhóm hàng C1_XEP/C2_DO… (A46:G51) cần phân loại theo danh mục NSW – quy tắc phân loại của SGCL? | Chưa điền (không tự suy đoán) |
 | Q10 | B5 Chức năng chứng từ ở các sheet không có dữ liệu: giữ `CN01` hay để trống? | Ghi giá trị chọn ở Tùy chọn (mặc định `CN01`) cho mọi sheet |
