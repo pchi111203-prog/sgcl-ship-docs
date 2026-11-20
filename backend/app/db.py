@@ -182,7 +182,12 @@ def init_db():
         for table, col, ddl in (("documents", "voyage_confirmed", "INTEGER NOT NULL DEFAULT 0"),
                                 ("documents", "voyage_confirmed_by", "TEXT"),
                                 ("extracted_fields", "data_type", "TEXT"),
-                                ("extracted_fields", "unit", "TEXT")):
+                                ("extracted_fields", "unit", "TEXT"),
+                                ("documents", "parent_id", "INTEGER"),          # child of a combined file that was split
+                                ("documents", "pages_cache", "TEXT"),           # JSON pages of a child (no re-reading/OCR)
+                                ("documents", "page_from", "INTEGER"),
+                                ("documents", "page_to", "INTEGER"),
+                                ("documents", "split_disabled", "INTEGER NOT NULL DEFAULT 0")):
             if col not in [r[1] for r in c.execute(f"PRAGMA table_info({table})")]:
                 c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
         if not c.execute("SELECT 1 FROM users").fetchone():

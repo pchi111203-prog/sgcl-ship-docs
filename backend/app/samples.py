@@ -25,6 +25,7 @@ VESSELS = {
     1: dict(name="SAMPLE TEAL STAR", imo="9395044", call_sign="3EXA7", flag="PANAMA", voyage="2611N", gt="9,940", nt="5,231"),
     2: dict(name="SAMPLE MEKONG PEARL", imo="9187356", call_sign="XVQB9", flag="VIETNAM", voyage="045S", gt="6,543", nt="3,412"),
     3: dict(name="SAMPLE CUU LONG BREEZE", imo="9406087", call_sign="9V2210", flag="SINGAPORE", voyage="118W", gt="17,068", nt="7,889"),
+    5: dict(name="SAMPLE BEN NGHE STAR", imo="9395044", call_sign="3EXB2", flag="PANAMA", voyage="2207S", gt="9,940", nt="5,231"),
     4: dict(name="SAMPLE SAIGON HORIZON", imo="9321483", call_sign="3FQW5", flag="PANAMA", voyage="0712E", gt="25,305", nt="12,410"),
 }
 
@@ -230,6 +231,38 @@ def gen_security(path, v, ports):
     _doc(path, story)
 
 
+def gen_combined_docx(path, v, crew):
+    """One Word file holding Crew List + Crew's Effects + Ship's Stores (headings in bold)."""
+    import docx
+    d = docx.Document()
+    d.add_paragraph("Kính gửi: Cảng vụ Hàng hải TP.HCM - bộ chứng từ thuyền viên (SAMPLE / DU LIEU MAU)")
+
+    def heading(text):
+        d.add_paragraph().add_run(text).bold = True
+
+    def table(hdr, rows):
+        t = d.add_table(rows=1, cols=len(hdr))
+        for i, h in enumerate(hdr):
+            t.rows[0].cells[i].text = h
+        for r in rows:
+            cells = t.add_row().cells
+            for i, x in enumerate(r):
+                cells[i].text = str(x)
+    heading("CREW LIST")
+    d.add_paragraph(f"Name of ship: {v['name']} | Voyage No: {v['voyage']} | IMO number: {v['imo']}")
+    table(["No.", "Family name, given names", "Rank or rating", "Nationality", "Date of birth", "Place of birth", "Sex", "Passport No.", "Expiry date"],
+          [[i + 1, c["name"], c["rank"], c["nat"], c["dob"], c["pob"], c["sex"], c["passport"], c["expiry"]] for i, c in enumerate(crew)])
+    heading("CREW'S EFFECTS DECLARATION")
+    d.add_paragraph(f"Name of ship: {v['name']} | Voyage No: {v['voyage']}")
+    table(["No.", "Family name, given names", "Rank or rating", "Effects ineligible for relief from customs duties"],
+          [[i + 1, c["name"], c["rank"], "NIL"] for i, c in enumerate(crew[:5])])
+    heading("SHIP'S STORES DECLARATION")
+    d.add_paragraph(f"Name of ship: {v['name']} | Voyage No: {v['voyage']}")
+    table(["No.", "Name of article", "Quantity", "Unit", "Location on board"],
+          [[1, "RICE", 300, "KGS", "PROVISION ROOM"], [2, "FRESH WATER", 95, "MT", "FW TANK"]])
+    d.save(path)
+
+
 def gen_unknown(path):
     _doc(path, _kv(["<b>INTERNAL NOTE</b>", "", "Please arrange fresh provisions and garbage collection on arrival.",
                     "Contact the chief cook for the list.", "", "Thank you."]))
@@ -306,6 +339,30 @@ def generate(scenario, out_dir):
                      ("MYPKG", "PORT KLANG", "23/08/2026", "01/09/2026", "1"), ("BDCGP", "CHITTAGONG", "08/09/2026", "23/09/2026", "1"),
                      ("SGSIN", "SINGAPORE", "10/11/2026", "11/11/2026", "1")]
             gen_security(p("11_doc_scan_0457.pdf"), v, ports)  # neutral file name: must be recognised from content
+    elif scenario == 5:
+        # the same kind of set as scenario 1 but delivered as 2 COMBINED files (must be split automatically)
+        import shutil
+        import pymupdf as fitz
+        tmp = os.path.join(out_dir, "_tmp")
+        os.makedirs(tmp, exist_ok=True)
+        parts = []
+
+        def t(name):
+            parts.append(os.path.join(tmp, name))
+            return parts[-1]
+        gen_gd(t("a.pdf"), v, len(crew), eta)
+        gen_noa(t("b.pdf"), v, eta)
+        gen_tonnage(t("c.pdf"), v)
+        gen_manifest(t("d.pdf"), v, cargo)
+        for i, c in enumerate(cargo[:3]):
+            gen_bl(t(f"e{i}.pdf"), v, c)
+        gen_dg(t("f.pdf"), v, cargo)
+        merged = fitz.open()
+        for f in parts:
+            merged.insert_pdf(fitz.open(f))
+        merged.save(p("Tron_bo_chung_tu_tau.pdf"))
+        gen_combined_docx(p("Bo_khai_thuyen_vien_Hop_Nhat.docx"), v, crew)
+        shutil.rmtree(tmp)
     elif scenario == 4:
         crew = _crew(35, seed=41)
         cargo = _cargo(4, n=50)

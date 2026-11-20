@@ -169,25 +169,37 @@ def _image_pages(path):
 
 
 def _docx_pages(path):
+    """Read paragraphs and tables in document order. 'blocks' keeps that order (used to split combined files)."""
     import docx
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
     d = docx.Document(path)
-    lines = [p.text for p in d.paragraphs]
-    tables = []
-    for t in d.tables:
-        rws = []
-        for r in t.rows:
-            cells = []
-            prev = None
-            for c in r.cells:  # merged cells repeat the same object
-                if c._tc is prev:
-                    continue
-                prev = c._tc
-                cells.append(c.text.replace("\n", " ").strip())
-            rws.append(cells)
-        tables.append(rws)
-        lines.extend("   ".join(r) for r in rws)
+    lines, tables, blocks = [], [], []
+    for el in d.element.body.iterchildren():
+        tag = el.tag.rsplit("}", 1)[-1]
+        if tag == "p":
+            p = Paragraph(el, d)
+            text = p.text
+            styled = (p.style is not None and (p.style.name or "").lower().startswith(("heading", "title"))) or \
+                     (any(r.bold for r in p.runs if r.text.strip()) and all(r.bold for r in p.runs if r.text.strip()))
+            lines.append(text)
+            blocks.append({"kind": "p", "text": text, "styled": bool(styled)})
+        elif tag == "tbl":
+            t = Table(el, d)
+            rws = []
+            for r in t.rows:
+                cells, prev = [], None
+                for c in r.cells:  # merged cells repeat the same object
+                    if c._tc is prev:
+                        continue
+                    prev = c._tc
+                    cells.append(c.text.replace("\n", " ").strip())
+                rws.append(cells)
+            tables.append(rws)
+            lines.extend("   ".join(r) for r in rws)
+            blocks.append({"kind": "t", "rows": rws})
     # DOCX has no fixed pagination; everything is reported as page 1
-    return [{"page_no": 1, "text": "\n".join(lines), "method": "docx", "confidence": 1.0, "tables": tables}]
+    return [{"page_no": 1, "text": "\n".join(lines), "method": "docx", "confidence": 1.0, "tables": tables, "blocks": blocks}]
 
 
 def _xlsx_pages(path):

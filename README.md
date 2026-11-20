@@ -88,7 +88,8 @@ Biến môi trường: `SGCL_DATA_DIR` (thư mục dữ liệu), `SGCL_TEMPLATE`
 - Tiến trình: Uploaded → Classified → Extracted → Cross-checked → Reviewed → Ready to Export → Exported.
 - Nút **Trích xuất tất cả** (chỉ chứng từ chưa xử lý / lỗi); danh sách **Unmapped Fields** ở trang Xuất Excel.
 - Bản khai an ninh → sheet *Declaration For Ship Security* (ISSC, cấp độ an ninh, 10 cảng ghé); Empty Container List → sheet *Empty Container*.
-- Dữ liệu mẫu: 4 bộ (đầy đủ; sai lệch + nhiều B/L + container + an ninh; scan/thiếu/không nhận diện; 5 chứng từ với 35 thuyền viên & 50 dòng hàng).
+- **Tự tách file gộp**: một PDF/scan, Word hoặc Excel chứa nhiều chứng từ được tách theo tiêu đề từng chứng từ (nhiều B/L liền nhau tách theo số B/L; chứng từ nhiều trang không bị tách). Mỗi phần được nhận diện, trích xuất, đối chiếu riêng; số trang tính theo file gộp. Nút *Hủy tách* / *Tách file gộp*.
+- Dữ liệu mẫu: 5 bộ (bộ 5 = chứng từ gộp trong 2 file), (đầy đủ; sai lệch + nhiều B/L + container + an ninh; scan/thiếu/không nhận diện; 5 chứng từ với 35 thuyền viên & 50 dòng hàng).
 
 ## 4. Giới hạn hiện tại (cần biết)
 

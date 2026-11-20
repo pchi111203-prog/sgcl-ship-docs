@@ -31,7 +31,7 @@ def wait_docs(vid, timeout=300):
     t0 = time.time()
     while time.time() - t0 < timeout:
         docs = client.get(f"/api/voyages/{vid}/documents", headers=H).json()["documents"]
-        if docs and all(d["status"] in ("EXTRACTED", "ERROR") for d in docs):
+        if docs and all(d["status"] in ("EXTRACTED", "ERROR", "SPLIT") for d in docs):
             return docs
         time.sleep(1)
     raise AssertionError("timeout")
@@ -320,3 +320,47 @@ def test_vessel_prefix_and_pipe_separated_fields():
     wait_docs(v["id"])
     res = results(v["id"])
     assert not any(r["status"] == "WRONG_VOYAGE" for r in res), [r["message"] for r in res if r["status"] == "WRONG_VOYAGE"]
+
+
+
+def test_scenario5_combined_files_are_split():
+    vid, docs = sample(5)
+    parents = [d for d in docs if d["status"] == "SPLIT"]
+    assert len(parents) == 2
+    kids = [d for d in docs if d["parent_id"]]
+    types = sorted(d["doc_type"] for d in kids)
+    assert types == sorted(["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "TONNAGE_CERTIFICATE", "CARGO_MANIFEST", "BILL_OF_LADING",
+                            "BILL_OF_LADING", "BILL_OF_LADING", "DG_MANIFEST", "CREW_LIST", "CREW_EFFECTS", "SHIP_STORES"]), types
+    assert all(d["status"] == "EXTRACTED" for d in kids)
+    pdf_kids = [d for d in kids if d["page_from"] and d["original_name"].startswith("Tron_bo")]
+    assert all(d["page_from"] >= 1 and d["page_to"] >= d["page_from"] for d in pdf_kids)
+    fields = client.get(f"/api/voyages/{vid}/fields", headers=H).json()["fields"]
+    assert len({f["record_key"] for f in fields if f["section"] == "crew"}) == 22
+    # page numbers refer to the combined file
+    gd_kid = next(d for d in kids if d["doc_type"] == "GENERAL_DECLARATION")
+    assert gd_kid["page_from"] == 1
+    res = results(vid)
+    assert not [r for r in res if r["blocking"]], [r["message"] for r in res if r["blocking"]]
+    assert any(r["status"] == "PASSED" and r["field_key"] == "gross_weight" for r in res)
+    assert any(r["status"] == "PASSED" and r["field_key"] == "crew_count" for r in res)  # GD (PDF) vs Crew List (Word)
+    prog = client.get(f"/api/voyages/{vid}", headers=H).json()["progress"]
+    assert prog["documents"] == len(kids)
+    # undo the split of the Word file -> processed as ONE document again
+    docx_parent = next(d for d in parents if d["original_name"].endswith(".docx"))
+    assert client.post(f"/api/documents/{docx_parent['id']}/split", json={"split": False}, headers=H).status_code == 200
+    docs2 = wait_docs(vid)
+    assert not [d for d in docs2 if d["parent_id"] == docx_parent["id"]]
+    assert next(d for d in docs2 if d["id"] == docx_parent["id"])["status"] == "EXTRACTED"
+    # delete the PDF combined file -> its parts and files go too
+    pdf_parent = next(d for d in parents if d["original_name"].endswith(".pdf"))
+    client.delete(f"/api/documents/{pdf_parent['id']}", headers=H)
+    assert not [d for d in client.get(f"/api/voyages/{vid}/documents", headers=H).json()["documents"] if d["parent_id"] == pdf_parent["id"]]
+
+
+def test_single_documents_are_not_split():
+    """Normal multi-page documents (Crew List over 2 pages, one B/L) must never be split."""
+    from app import ingest, samples, splitter
+    d = tempfile.mkdtemp()
+    for f in samples.generate(4, d):
+        pages = ingest.read_document(f)
+        assert not splitter.is_combined(splitter.split_pages(pages)), f

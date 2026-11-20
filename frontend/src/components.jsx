@@ -8,7 +8,7 @@ export const VOYAGE_STATUS = {
   READY: ['Sẵn sàng xuất', 'b-green'], EXPORTED: ['Đã xuất Excel', 'b-teal'],
 }
 export const DOC_STATUS = {
-  UPLOADED: ['Đã tải lên', 'b-gray'], PROCESSING: ['Đang xử lý', 'b-blue'], EXTRACTED: ['Đã trích xuất', 'b-green'], ERROR: ['Lỗi xử lý', 'b-red'],
+  UPLOADED: ['Đã tải lên', 'b-gray'], PROCESSING: ['Đang xử lý', 'b-blue'], EXTRACTED: ['Đã trích xuất', 'b-green'], ERROR: ['Lỗi xử lý', 'b-red'], SPLIT: ['File gộp – đã tách', 'b-teal'],
 }
 export const CHECK_STATUS = {
   PASSED: ['Passed – Phù hợp', 'b-green'], MISMATCH: ['Mismatch – Sai lệch', 'b-red'], MISSING_INFO: ['Missing Information – Thiếu', 'b-amber'],

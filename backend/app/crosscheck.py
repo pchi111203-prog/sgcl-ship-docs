@@ -529,6 +529,8 @@ def check_containers(c: Ctx):
 def check_documents(c: Ctx):
     hashes = defaultdict(list)
     for d in c.docs.values():
+        if d["status"] == "SPLIT":
+            continue  # combined file: its parts are checked as separate documents
         hashes[d["sha256"]].append(d)
         if d["status"] == "ERROR":
             c.add(GROUP_DOC, "NEEDS_REVIEW", f"'{d['original_name']}' xử lý lỗi: {d['error']}", doc1=d["id"], blocking=False)

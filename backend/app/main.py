@@ -14,7 +14,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import crosscheck, db, extract, ingest, nsw_export, samples
+from . import crosscheck, db, extract, ingest, nsw_export, samples, splitter
+import json
 from . import normalize as N
 
 app = FastAPI(title="SGCL Ship Documentation Automation System")
@@ -103,7 +104,7 @@ def _voyage_or_404(c, vid):
 
 def voyage_progress(c, v):
     vid = v["id"]
-    docs = db.rows(c, "SELECT status, doc_type, doc_type_confirmed FROM documents WHERE voyage_id=?", (vid,))
+    docs = db.rows(c, "SELECT status, doc_type, doc_type_confirmed FROM documents WHERE voyage_id=? AND status!='SPLIT'", (vid,))
     n_docs = len(docs)
     n_ext = sum(1 for d in docs if d["status"] == "EXTRACTED")
     n_err = sum(1 for d in docs if d["status"] == "ERROR")
@@ -383,7 +384,7 @@ def list_documents(vid: int, u=Depends(current_user)):
         docs = db.rows(c, "SELECT d.*, (SELECT COUNT(*) FROM extracted_fields f WHERE f.document_id=d.id) n_fields, "
                           "(SELECT COUNT(*) FROM crosscheck_results r WHERE r.doc1_id=d.id AND r.status='WRONG_VOYAGE' AND r.acknowledged=0) suspect, "
                           "(SELECT COUNT(DISTINCT record_key) FROM extracted_fields f WHERE f.document_id=d.id AND record_key!='header') n_records "
-                          "FROM documents d WHERE voyage_id=? ORDER BY id", (vid,))
+                          "FROM documents d WHERE voyage_id=? ORDER BY COALESCE(d.parent_id, d.id), d.parent_id IS NOT NULL, d.id", (vid,))
     return {"documents": docs, "types": extract.DOC_TYPES}
 
 
@@ -432,9 +433,12 @@ def replace_document(did: int, file: UploadFile = File(...), u=Depends(current_u
         d = db.row(c, "SELECT * FROM documents WHERE id=?", (did,))
         if not d:
             raise HTTPException(404)
+        if d["parent_id"]:
+            raise HTTPException(400, "Đây là phần tách từ file gộp - hãy thay file gộp gốc hoặc tải file riêng.")
         ext = os.path.splitext(file.filename or "")[1].lower()
         if ext not in ingest.SUPPORTED:
             raise HTTPException(400, f"Định dạng {ext} chưa được hỗ trợ")
+        _delete_children(c, did)
         data = file.file.read()
         stored = f"v{d['voyage_id']}_{secrets.token_hex(8)}{ext}"
         with open(os.path.join(db.UPLOAD_DIR, stored), "wb") as out:
@@ -456,8 +460,11 @@ def delete_document(did: int, u=Depends(current_user)):
         d = db.row(c, "SELECT * FROM documents WHERE id=?", (did,))
         if not d:
             raise HTTPException(404)
+        _delete_children(c, did)
         c.execute("DELETE FROM documents WHERE id=?", (did,))
-        _rm(os.path.join(db.UPLOAD_DIR, d["stored_name"]))
+        _rm_if_unused(c, d["stored_name"])
+        if d["pages_cache"]:
+            _rm(os.path.join(db.UPLOAD_DIR, d["pages_cache"]))
         db.log(c, d["voyage_id"], "DELETE_DOCUMENT", u["username"], old=d["original_name"])
         _touch(c, d["voyage_id"])
     return {"ok": True}
@@ -480,6 +487,24 @@ def set_doc_type(did: int, body: TypeIn, u=Depends(current_user)):
         db.log(c, d["voyage_id"], "SET_DOC_TYPE", u["username"], old=d["doc_type"], new=body.doc_type, reason=d["original_name"])
     if body.reprocess and d["doc_type"] != body.doc_type:
         _queue(did, u["username"])
+    return {"ok": True}
+
+
+class SplitIn(BaseModel):
+    split: bool
+
+
+@app.post("/api/documents/{did}/split")
+def set_split(did: int, body: SplitIn, u=Depends(current_user)):
+    """split=false: undo the automatic split and process the file as ONE document; split=true: allow splitting again."""
+    with db.tx() as c:
+        d = db.row(c, "SELECT * FROM documents WHERE id=?", (did,))
+        if not d or d["parent_id"]:
+            raise HTTPException(400, "Chỉ áp dụng cho file gốc")
+        _delete_children(c, did)
+        c.execute("UPDATE documents SET split_disabled=?, status='PROCESSING', error=NULL WHERE id=?", (0 if body.split else 1, did))
+        db.log(c, d["voyage_id"], "ALLOW_SPLIT" if body.split else "UNDO_SPLIT", u["username"], old=d["original_name"])
+    POOL.submit(process_document, did, u["username"])
     return {"ok": True}
 
 
@@ -512,6 +537,57 @@ def _queue(did, user):
     POOL.submit(process_document, did, user)
 
 
+def _split_into_children(d, segments, user):
+    """Create one child document per segment of a combined file; the parent keeps status SPLIT and no data."""
+    base = os.path.splitext(d["stored_name"])[0]
+    child_ids = []
+    with db.tx() as c:
+        _delete_children(c, d["id"])
+        for i, seg in enumerate(segments, start=1):
+            p_from, p_to = seg["pages"][0]["page_no"], seg["pages"][-1]["page_no"]
+            stored = d["stored_name"]
+            if d["ext"] == ".pdf" and len({p["page_no"] for p in seg["pages"]}) < (d["page_count"] or 10 ** 6):
+                stored = f"{base}_part{i}.pdf"
+                try:
+                    import pymupdf as fitz
+                    src = fitz.open(os.path.join(db.UPLOAD_DIR, d["stored_name"]))
+                    out = fitz.open()
+                    out.insert_pdf(src, from_page=p_from - 1, to_page=p_to - 1)
+                    out.save(os.path.join(db.UPLOAD_DIR, stored))
+                except Exception:
+                    stored = d["stored_name"]
+            cache = f"{base}_part{i}.pages.json"
+            with open(os.path.join(db.UPLOAD_DIR, cache), "w", encoding="utf-8") as fh:
+                json.dump(seg["pages"], fh, ensure_ascii=False)
+            label = extract.DOC_TYPES.get(seg["type"] or "OTHER", "").split(" (")[0]
+            pages_txt = f"tr.{p_from}" if p_from == p_to else f"tr.{p_from}-{p_to}"
+            name = f"{d['original_name']} › phần {i}: {label}" + ("" if d["ext"] == ".docx" else f" ({pages_txt})")
+            cur = c.execute("INSERT INTO documents(voyage_id,original_name,stored_name,ext,size,sha256,status,uploaded_by,uploaded_at,parent_id,"
+                            "pages_cache,page_from,page_to) VALUES(?,?,?,?,?,?,'PROCESSING',?,?,?,?,?,?)",
+                            (d["voyage_id"], name, stored, ".pdf" if stored.endswith(".pdf") else d["ext"], d["size"], f"{d['sha256']}:{i}",
+                             user, db.now(), d["id"], cache, p_from, p_to))
+            child_ids.append(cur.lastrowid)
+        c.execute("DELETE FROM extracted_fields WHERE document_id=?", (d["id"],))
+        c.execute("UPDATE documents SET status='SPLIT', doc_type=NULL, error=?, processed_at=? WHERE id=?",
+                  (f"File gộp: đã tách thành {len(segments)} chứng từ", db.now(), d["id"]))
+        db.log(c, d["voyage_id"], "SPLIT_COMBINED_FILE", user, old=d["original_name"], new=f"{len(segments)} chứng từ")
+    for cid in child_ids:
+        process_document(cid, user)
+
+
+def _delete_children(c, parent_id):
+    for ch in db.rows(c, "SELECT * FROM documents WHERE parent_id=?", (parent_id,)):
+        c.execute("DELETE FROM documents WHERE id=?", (ch["id"],))
+        _rm_if_unused(c, ch["stored_name"])
+        if ch["pages_cache"]:
+            _rm(os.path.join(db.UPLOAD_DIR, ch["pages_cache"]))
+
+
+def _rm_if_unused(c, stored_name):
+    if not db.row(c, "SELECT id FROM documents WHERE stored_name=?", (stored_name,)):
+        _rm(os.path.join(db.UPLOAD_DIR, stored_name))
+
+
 def process_document(did, user):
     """Read -> classify -> extract -> store. Runs in a worker thread."""
     try:
@@ -519,7 +595,16 @@ def process_document(did, user):
             d = db.row(c, "SELECT * FROM documents WHERE id=?", (did,))
         if not d:
             return
-        pages = ingest.read_document(os.path.join(db.UPLOAD_DIR, d["stored_name"]))
+        if d["pages_cache"]:
+            with open(os.path.join(db.UPLOAD_DIR, d["pages_cache"]), encoding="utf-8") as fh:
+                pages = json.load(fh)
+        else:
+            pages = ingest.read_document(os.path.join(db.UPLOAD_DIR, d["stored_name"]))
+        if not d["parent_id"] and not d["split_disabled"]:
+            segments = splitter.split_pages(pages)
+            if splitter.is_combined(segments):
+                _split_into_children(d, segments, user)
+                return
         auto, score, _ = extract.classify(pages)
         doc_type = d["doc_type"] if d["doc_type_confirmed"] and d["doc_type"] else auto
         fields = extract.extract_document(doc_type, pages)
@@ -679,7 +764,8 @@ def move_document(did: int, body: MoveIn, u=Depends(current_user)):
         target = _voyage_or_404(c, body.voyage_id)
         if target["id"] == d["voyage_id"]:
             raise HTTPException(400, "Chứng từ đã thuộc chuyến này")
-        c.execute("UPDATE documents SET voyage_id=?, voyage_confirmed=0 WHERE id=?", (target["id"], did))
+        c.execute("UPDATE documents SET voyage_id=?, voyage_confirmed=0 WHERE id=? OR parent_id=?", (target["id"], did, did))
+        c.execute("UPDATE extracted_fields SET voyage_id=? WHERE document_id IN (SELECT id FROM documents WHERE parent_id=?)", (target["id"], did))
         c.execute("UPDATE extracted_fields SET voyage_id=?, status=CASE WHEN status='CONFIRMED' THEN 'EXTRACTED' ELSE status END, "
                   "confirmed_by=NULL, confirmed_at=NULL, updated_at=? WHERE document_id=?", (target["id"], db.now(), did))
         db.log(c, d["voyage_id"], "MOVE_DOCUMENT_OUT", u["username"], old=d["original_name"], new=target["voyage_code"], reason=body.reason)
@@ -1009,7 +1095,7 @@ def change_password(body: PwIn, u=Depends(current_user)):
 @app.post("/api/samples/{scenario}")
 def create_sample(scenario: int, u=Depends(current_user)):
     """Create a SAMPLE voyage (is_sample=1) with generated documents for test scenario 1/2/3."""
-    if scenario not in (1, 2, 3, 4):
+    if scenario not in (1, 2, 3, 4, 5):
         raise HTTPException(400)
     with tempfile.TemporaryDirectory() as td:
         files = samples.generate(scenario, td)
