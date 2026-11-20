@@ -23,8 +23,12 @@ def _title_rules():
 TITLES = _title_rules()
 
 
-def title_type(text, top_lines=6):
-    """Document type whose main title appears in the first non-empty lines of `text`, else None."""
+def title_type(text, top_lines=12):
+    """Document type whose main title appears in the first non-empty lines of `text`, else None (strongest title wins)."""
+    return extract.document_title_type(text, top_lines)
+
+
+def _title_type_old(text, top_lines=12):
     lines = [N.strip_accents(l).upper().strip() for l in (text or "").splitlines() if l.strip()][:top_lines]
     head = "\n".join(lines)
     best, best_pos = None, None
@@ -54,7 +58,7 @@ def _heading_type(block):
 
 # list tables that identify a document on their own (column headers), by specificity
 SECTION_DOC = [("effects", "CREW_EFFECTS"), ("dg", "DG_MANIFEST"), ("empty_container", "EMPTY_CONTAINER_LIST"),
-               ("port_calls", "SHIP_SECURITY"), ("passenger", "PASSENGER_LIST"), ("crew", "CREW_LIST"),
+               ("passenger", "PASSENGER_LIST"), ("crew", "CREW_LIST"),
                ("store", "SHIP_STORES"), ("cargo", "CARGO_MANIFEST")]
 # a table of this kind inside a document of that type belongs to it (e.g. the goods table of a B/L)
 _COMPATIBLE = {("BILL_OF_LADING", "CARGO_MANIFEST"), ("GENERAL_DECLARATION", "CARGO_MANIFEST"), ("NOTICE_OF_ARRIVAL", "CARGO_MANIFEST"),
@@ -64,7 +68,7 @@ _COMPATIBLE = {("BILL_OF_LADING", "CARGO_MANIFEST"), ("GENERAL_DECLARATION", "CA
 def table_type(rows):
     """Document type identified by a table's column headers (strong match only), else None."""
     best, best_n = None, 0
-    for r in (rows or [])[:3]:
+    for r in (rows or [])[:8]:  # Vietnamese forms put vessel rows above the column headers
         for section, doc in SECTION_DOC:
             m = extract._match_header(r, section)
             if extract._header_ok(m, section) and len(m) >= 4 and len(m) > best_n:
@@ -116,7 +120,64 @@ def split_pages(pages):
     return segs
 
 
+LIST_TYPES = {"CREW_LIST", "PASSENGER_LIST", "CARGO_MANIFEST", "DG_MANIFEST", "SHIP_STORES", "CREW_EFFECTS", "EMPTY_CONTAINER_LIST"}
+_RULE_LINE = re.compile(r"^\s*[=_\-*~]{20,}\s*$")
+
+
+def _vpages(page):
+    """Virtual pages of a DOCX: blocks between explicit page/section breaks (or long '=====' separator lines)."""
+    out, cur = [], []
+    for b in page["blocks"]:
+        if b["kind"] == "break" or (b["kind"] == "p" and _RULE_LINE.match(b.get("text") or "")):
+            if cur:
+                out.append(cur)
+            cur = []
+        else:
+            cur.append(b)
+    if cur:
+        out.append(cur)
+    res = []
+    for i, blocks in enumerate(out, start=1):
+        lines, tables = [], []
+        for b in blocks:
+            if b["kind"] == "p":
+                lines.append(b["text"])
+            else:
+                tables.append(b["rows"])
+                lines.extend("   ".join(r) for r in b["rows"])
+        res.append({"page_no": i, "text": "\n".join(lines), "method": page["method"], "confidence": page["confidence"],
+                    "tables": tables, "blocks": blocks})
+    return res
+
+
 def _split_docx(page):
+    vp = _vpages(page)
+    if len(vp) > 1:
+        return _split_docx_pages(vp)
+    return _split_docx_headings(page)
+
+
+def _split_docx_pages(vpages):
+    """Each explicitly started page is a new document unless it only continues the previous page's list."""
+    segs = []
+    for p in vpages:
+        t = title_type(p["text"]) or next((x for x in (_table_title(tb) for tb in p["tables"][:2]) if x), None)
+        tt = next((x for x in map(table_type, p["tables"]) if x), None)
+        clean = {k: v for k, v in p.items() if k != "blocks"}
+        if segs and not t:
+            prev = segs[-1]
+            prev_tables = [tb for pg in prev["pages"] for tb in pg["tables"]]
+            same_list = tt and tt == prev["type"]
+            continues = prev["type"] in LIST_TYPES and p["tables"] and prev_tables and not p["blocks"][0]["kind"] == "p" and \
+                len(p["tables"][0][0]) == len(prev_tables[-1][-1]) and not tt
+            if same_list or continues:
+                prev["pages"].append(clean)
+                continue
+        segs.append({"type": t or tt, "pages": [clean]})
+    return segs
+
+
+def _split_docx_headings(page):
     segs = []
     for b in page["blocks"]:
         if b["kind"] == "p":

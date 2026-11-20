@@ -40,9 +40,21 @@ def _company_key(s):
     return re.sub(r"\s+", " ", k).strip()
 
 
+def _is_vietnamese(s):
+    return bool(re.search(r"[ăâđêôơưĂÂĐÊÔƠƯàảãáạằẳẵắặầẩẫấậèẻẽéẹềểễếệìỉĩíịòỏõóọồổỗốộờởỡớợùủũúụừửữứựỳỷỹýỵ]", s or ""))
+
+
 def _locode(s):
     m = re.search(r"\b([A-Z]{2}[A-Z2-9]{3})\b(?=\)|$)", (s or "").upper())
     return m.group(1) if m else None
+
+
+_PORT_GENERIC = {"PORT", "CANG", "INTERNATIONAL", "QUOC", "TE", "TERMINAL", "BEN", "CAU", "OF", "THE", "AND", "CITY", "THANH", "PHO", "TP",
+                 "PROVINCE", "TINH", "HARBOUR", "HARBOR", "WHARF", "VIETNAM", "VIET", "NAM", "VN", "INTL", "LAIP"}
+
+
+def _port_words(s):
+    return {w for w in N.norm_text(re.sub(r"\(.*?\)", " ", s or "")).split() if w not in _PORT_GENERIC and not w.isdigit()}
 
 
 def _cmp_port(a, b):
@@ -50,7 +62,11 @@ def _cmp_port(a, b):
     if la and lb:
         return la == lb
     ka, kb = N.norm_text(a), N.norm_text(b)
-    return ka == kb or (len(min(ka, kb, key=len)) >= 4 and (ka in kb or kb in ka))
+    if ka == kb or (len(min(ka, kb, key=len)) >= 4 and (ka in kb or kb in ka)):
+        return True
+    # 'Cảng Quốc tế Long An' = 'LONG AN INTERNATIONAL PORT, VIETNAM': compare the proper-name words only
+    wa, wb = _port_words(a), _port_words(b)
+    return bool(wa and wb) and (wa <= wb or wb <= wa)
 
 
 def _cmp_number(a, b):
@@ -199,7 +215,7 @@ def check_mixed_vessels(c: Ctx):
         groups = defaultdict(list)
         for f in c.header(key):
             d = c.docs.get(f["document_id"])
-            if d and not d.get("voyage_confirmed"):
+            if d and not d.get("voyage_confirmed") and d["doc_type"] not in ("OTHER", "REFERENCE", None):
                 groups[N.norm_id(f["value"]) if key == "imo" else N.vessel_key(f["value"])].append(f)
         if len(groups) > 1:
             detail = "; ".join(f"'{fs[0]['value']}': " + ", ".join(sorted({c.doc_name(x['document_id']) for x in fs})) for fs in groups.values())
@@ -225,8 +241,8 @@ def check_wrong_voyage(c: Ctx):
     # if the voyage record is empty, use the General Declaration as reference
     gd = {k: (c.header(k, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL"]) or [None])[0] for k in ref}
     for doc_id, d in c.docs.items():
-        if d.get("voyage_confirmed"):
-            continue  # staff checked the original and confirmed it belongs to this voyage
+        if d.get("voyage_confirmed") or d["doc_type"] in ("OTHER", "REFERENCE", None):
+            continue  # confirmed by staff / unknown documents (free text) are not compared
         for key, cmp in (("vessel_name", _cmp_vessel), ("imo", _cmp_id), ("voyage_no", _cmp_id)):
             fs = [f for f in c.header(key) if f["document_id"] == doc_id]
             if not fs:
@@ -260,6 +276,11 @@ def _cargo_cmp(kind, a, b):
             return "same"
         if ka and kb and (ka.startswith(kb) or kb.startswith(ka)):
             return "similar"
+        wa, wb = set(ka.split()), set(kb.split())
+        if wa and wb and len(wa & wb) >= 0.5 * min(len(wa), len(wb)):
+            return "similar"  # same party, address written differently
+        if _is_vietnamese(a) != _is_vietnamese(b):
+            return "language"  # one side in Vietnamese, the other in English: cannot be compared automatically
         return "diff"
     if kind == "text":
         if _cmp_text(a, b):
@@ -357,9 +378,13 @@ def check_cargo(c: Ctx):
                 res, note = _cargo_cmp(kind, _with_unit(b, key) if kind in ("number", "weight") else bf["value"], mval), ""
             if res == "same":
                 c.add(GROUP_CARGO, "PASSED", f"B/L {bl} - {label} khớp{note}.", key, f"bl:{bl}", f1=mf, f2=bf, v1=mval)
-            elif res == "similar":
-                c.add(GROUP_CARGO, "NEEDS_REVIEW", f"B/L {bl} - {label}: cách ghi khác nhau (có thể viết tắt){note}.", key, f"bl:{bl}", f1=mf, f2=bf,
-                      v1=mval, blocking=False)
+            elif res == "language":
+                c.add(GROUP_CARGO, "NEEDS_REVIEW", f"B/L {bl} - {label}: một chứng từ ghi tiếng Việt, một chứng từ ghi tiếng Anh{note} - nhân viên xác nhận "
+                      "cùng một bên.", key, f"bl:{bl}", f1=mf, f2=bf, v1=mval, blocking=False)
+            elif res == "similar" or key == "description":
+                # descriptions are free text (often another language / more detail): staff compare, no automatic verdict
+                c.add(GROUP_CARGO, "NEEDS_REVIEW", f"B/L {bl} - {label}: cách ghi khác nhau{' (có thể viết tắt)' if res == 'similar' else ' (ngôn ngữ / mức chi tiết khác)'}"
+                      f"{note} - nhân viên so sánh nội dung.", key, f"bl:{bl}", f1=mf, f2=bf, v1=mval, blocking=False)
             else:
                 c.add(GROUP_CARGO, "MISMATCH", f"B/L {bl} - {label}: Cargo Manifest và B/L khác nhau{note}.", key, f"bl:{bl}", f1=mf, f2=bf, v1=mval,
                       suggestion="Kiểm tra bản gốc. Hệ thống không tự chọn giá trị.")
@@ -536,7 +561,7 @@ def check_documents(c: Ctx):
             c.add(GROUP_DOC, "NEEDS_REVIEW", f"'{d['original_name']}' xử lý lỗi: {d['error']}", doc1=d["id"], blocking=False)
         elif d["status"] != "EXTRACTED":
             c.add(GROUP_DOC, "NEEDS_REVIEW", f"'{d['original_name']}' chưa được trích xuất.", doc1=d["id"], blocking=False)
-        if d["doc_type"] == "OTHER" and not d["doc_type_confirmed"]:
+        if d["doc_type"] == "OTHER" and not d["doc_type_confirmed"] and d["status"] != "SPLIT":
             c.add(GROUP_DOC, "NEEDS_REVIEW", f"'{d['original_name']}' chưa nhận diện được loại chứng từ - cần chọn loại.", doc1=d["id"], blocking=False)
     for h, ds in hashes.items():
         if len(ds) > 1:

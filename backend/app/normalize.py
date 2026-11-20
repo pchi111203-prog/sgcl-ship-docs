@@ -73,6 +73,9 @@ def parse_date(s):
         tm = _TIME.search(rest)
         if tm and (":" in tm.group(0) or re.search(r"HRS|LT|H", tm.group(0), re.I) or len(rest.strip()) <= 6):
             return f"{dt:%d/%m/%Y} {int(tm.group('h')):02d}:{tm.group('mi')}", True
+        before = re.search(r"(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?!\d)", txt[:m.start()])  # "08:00 hrs Ngày 18/10/2023"
+        if before:
+            return f"{dt:%d/%m/%Y} {int(before.group(1)):02d}:{before.group(2)}", True
         return f"{dt:%d/%m/%Y}", True
     return None, False
 

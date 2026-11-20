@@ -414,3 +414,31 @@ def test_split_docx_crew_list_without_clear_heading():
         crew = segs[2]["pages"]
         assert extract.classify(crew)[0] == "CREW_LIST", variant
         assert len({f["record_key"] for f in extract.extract_document("CREW_LIST", crew) if f["section"] == "crew"}) == 3
+
+
+
+def test_vietnamese_forms_and_bilingual_values():
+    """Patterns met in SGCL's real combined file (Vietnamese forms, bilingual labels, merged columns)."""
+    from app import extract
+    from app.crosscheck import _cmp_port, _cargo_cmp
+
+    def read(text, keys):
+        pages = [{"page_no": 1, "method": "docx", "confidence": 1.0, "tables": [], "text": text}]
+        return {k: v["value"] for k, v in extract.extract_header(pages, keys).items()}
+    noa = ("Hô hiệu / Call sign: 3WHB9   Cảng đến Port of arrival  CẢNG QUỐC TẾ LONG AN   Thời gian đến Time of arrival  08:00 hrs Ngày 18/10/2023 (ETA Pilot Vũng Tàu)\n"
+           "Quốc tịch tàu Flag State of ship VIỆT NAM   Cảng rời cuối cùng/cảng đích: Last port of call/port of destination SURABAYA, INDONESIA  /  CẢNG QUỐC TẾ LONG AN\n"
+           "Chiều cao tĩnh không Clearance height 28.50 m   Mớn nước thực tế Shown draft F: 6.10 m / A: 6.35 m\n"
+           "Số thuyền viên (gồm cả thuyền trưởng): 12 thuyền viên (Việt Nam)   Số hành khách: 00 (Không)")
+    got = read(noa, ["call_sign", "eta", "last_port", "flag", "draft_fwd", "draft_aft", "crew_count"])
+    assert got["call_sign"] == "3WHB9" and got["last_port"] == "SURABAYA, INDONESIA" and got["crew_count"] == "12"
+    assert extract.normalise_field("eta", got["eta"]) == "18/10/2023 08:00" and got["draft_fwd"].startswith("6.10")
+    assert read("Hô hiệu / Distinctive letters 3WHB9 (VN-4195-VT)   Cảng đăng ký / Port of registry HAI PHONG, VIET NAM\nTỔNG DUNG TÍCH (GROSS TONNAGE): 4,353",
+                ["call_sign", "flag", "gross_tonnage"]) == {"call_sign": "3WHB9", "gross_tonnage": "4,353"}  # port of registry is not the flag
+    assert extract.normalise_field("bl_no", "SUB/LA-231008 Ngày: 10/10/2023") == "SUB/LA-231008"
+    fields = {"dob": {"value": "14/05/1976 - THAI BINH"}, "passport_no": {"value": "C6829104 (12/08/2029)"}}
+    extract._split_combined(fields)
+    assert fields["dob"]["value"] == "14/05/1976" and fields["pob"]["value"] == "THAI BINH"
+    assert fields["passport_no"]["value"] == "C6829104" and fields["passport_expiry"]["value"] == "12/08/2029"
+    assert _cmp_port("Cảng Quốc tế Long An", "LONG AN INTERNATIONAL PORT, VIETNAM")
+    assert not _cmp_port("Cảng Quốc tế Long An", "CAT LAI PORT, HO CHI MINH")
+    assert _cargo_cmp("company", "Theo lệnh Ngân hàng TMCP Ngoại thương Việt Nam", "TO THE ORDER OF JOINT STOCK COMMERCIAL BANK FOR FOREIGN TRADE OF VIETNAM") == "language"

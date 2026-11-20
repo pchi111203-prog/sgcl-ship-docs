@@ -184,6 +184,11 @@ def _docx_pages(path):
                      (any(r.bold for r in p.runs if r.text.strip()) and all(r.bold for r in p.runs if r.text.strip()))
             lines.append(text)
             blocks.append({"kind": "p", "text": text, "styled": bool(styled)})
+            W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+            if el.findall(f".//{W}br[@{W}type='page']") or el.findall(f".//{W}sectPr"):
+                blocks.append({"kind": "break"})  # explicit page / section break: documents usually start on a new page
+            elif el.findall(f".//{W}pageBreakBefore") and len(blocks) > 1:
+                blocks.insert(len(blocks) - 1, {"kind": "break"})
         elif tag == "tbl":
             t = Table(el, d)
             rws = []

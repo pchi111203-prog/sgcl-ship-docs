@@ -561,7 +561,7 @@ def _split_into_children(d, segments, user):
                 json.dump(seg["pages"], fh, ensure_ascii=False)
             label = extract.DOC_TYPES.get(seg["type"] or "OTHER", "").split(" (")[0]
             pages_txt = f"tr.{p_from}" if p_from == p_to else f"tr.{p_from}-{p_to}"
-            name = f"{d['original_name']} › phần {i}: {label}" + ("" if d["ext"] == ".docx" else f" ({pages_txt})")
+            name = f"{d['original_name']} › phần {i}: {label} ({pages_txt})"
             cur = c.execute("INSERT INTO documents(voyage_id,original_name,stored_name,ext,size,sha256,status,uploaded_by,uploaded_at,parent_id,"
                             "pages_cache,page_from,page_to,doc_type) VALUES(?,?,?,?,?,?,'PROCESSING',?,?,?,?,?,?,?)",
                             (d["voyage_id"], name, stored, ".pdf" if stored.endswith(".pdf") else d["ext"], d["size"], f"{d['sha256']}:{i}",
@@ -606,8 +606,8 @@ def process_document(did, user):
                 _split_into_children(d, segments, user)
                 return
         auto, score, _ = extract.classify(pages)
-        if auto == "OTHER" and d["parent_id"] and d["doc_type"]:
-            auto, score = d["doc_type"], 0.6  # part of a combined file identified by its title/table while splitting
+        if d["parent_id"] and d["doc_type"] and d["doc_type"] in extract.DOC_TYPES and not d["doc_type_confirmed"] and auto in ("OTHER", None):
+            auto, score = d["doc_type"], 0.6  # part of a combined file identified by its list table while splitting
         doc_type = d["doc_type"] if d["doc_type_confirmed"] and d["doc_type"] else auto
         fields = extract.extract_document(doc_type, pages)
         methods = sorted({p["method"] for p in pages})
@@ -635,6 +635,13 @@ def process_document(did, user):
             c.execute("UPDATE documents SET status=?, error=?, doc_type=?, doc_type_auto=?, doc_type_score=?, page_count=?, extraction_method=?, "
                       "avg_confidence=?, processed_at=? WHERE id=?",
                       ("EXTRACTED" if fields or unknown_ok else "ERROR", err, doc_type, auto, score, len(pages), "+".join(methods), conf, db.now(), did))
+            if d["parent_id"] and " › phần " in d["original_name"]:
+                # keep the part's name in line with its final type
+                head, _, tail = d["original_name"].partition(" › phần ")
+                num = tail.split(":")[0]
+                pages_txt = f" (tr.{d['page_from']})" if d["page_from"] == d["page_to"] else f" (tr.{d['page_from']}-{d['page_to']})"
+                label = extract.DOC_TYPES.get(doc_type, "").split(" (")[0].split(" – ")[0]
+                c.execute("UPDATE documents SET original_name=? WHERE id=?", (f"{head} › phần {num}: {label}{pages_txt}", did))
             db.log(c, d["voyage_id"], "EXTRACT", user, reason=f"{d['original_name']}: {len(fields)} trường, loại {doc_type}")
             _touch(c, d["voyage_id"])
     except Exception as e:

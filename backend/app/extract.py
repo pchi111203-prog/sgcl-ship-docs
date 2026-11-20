@@ -29,16 +29,18 @@ DOC_TYPES = {
     "PLANT_DECLARATION": "Declaration for Plant (Bản khai kiểm dịch thực vật)",
     "ANIMAL_DECLARATION": "Declaration for Animal (Bản khai kiểm dịch động vật)",
     "EMPTY_CONTAINER_LIST": "Empty Container List (Danh sách container rỗng)",
+    "REFERENCE": "Chứng từ khai thác – tham khảo (SOF, NOR, Draft survey, Voyage memory, kế hoạch cầu bến, công văn…)",
+    "CERTIFICATE": "Ship Certificate / Particulars / Port Clearance (Giấy chứng nhận, hồ sơ tàu – tham khảo)",
     "OTHER": "Unknown Document – Chứng từ chưa nhận diện / khác",
 }
 
 CLASSIFY_RULES = {
     "GENERAL_DECLARATION": [(r"GENERAL\s+DECLARATION", 10), (r"BAN\s+KHAI\s+CHUNG", 10), (r"IMO\s+FAL\s+FORM\s+1\b", 8),
                             (r"BRIEF\s+PARTICULARS\s+OF\s+VOYAGE", 4), (r"NUMBER\s+OF\s+CREW", 2), (r"ARRIVAL\s*/?\s*DEPARTURE", 2)],
-    "NOTICE_OF_ARRIVAL": [(r"NOTICE\s+OF\s+(READINESS|ARRIVAL)", 10), (r"PRE[\s-]*ARRIVAL\s+NOTI", 9), (r"THONG\s+BAO\s+TAU\s+DEN", 10),
+    "NOTICE_OF_ARRIVAL": [(r"NOTICE\s+OF\s+ARRIVAL", 10), (r"PRE[\s-]*ARRIVAL\s+NOTI", 9), (r"THONG\s+BAO\s+TAU\s+DEN", 10),
                           (r"\bNOA\b", 4), (r"ARRIVAL\s+NOTICE", 9), (r"DRAFT\s+(FWD|FORE|AFT)", 2), (r"\bROB\b", 2)],
     "TONNAGE_CERTIFICATE": [(r"TONNAGE\s+CERTIFICATE", 10), (r"INTERNATIONAL\s+TONNAGE", 10), (r"TONNAGE\s+MEASUREMENT", 6),
-                            (r"DUNG\s+TICH", 8), (r"NET\s+TONNAGE", 2), (r"GROSS\s+TONNAGE", 2)],
+                            (r"CHUNG\s+NHAN\s+DUNG\s+TICH", 10), (r"NET\s+TONNAGE", 2), (r"GROSS\s+TONNAGE", 2)],
     "CARGO_MANIFEST": [(r"CARGO\s+MANIFEST", 10), (r"\bMANIFEST\b", 4), (r"LUOC\s+KHAI", 10), (r"FREIGHT\s+MANIFEST", 8),
                        (r"IMO\s+FAL\s+FORM\s+2\b", 6), (r"CARGO\s+DECLARATION", 6)],
     "BILL_OF_LADING": [(r"BILL\s+OF\s+LADING", 10), (r"\bVAN\s+DON\b", 8), (r"SHIPPED\s+ON\s+BOARD", 4),
@@ -50,10 +52,22 @@ CLASSIFY_RULES = {
     "DG_MANIFEST": [(r"DANGEROUS\s+GOODS", 9), (r"HAZARDOUS", 5), (r"IMDG", 5), (r"HANG\s+NGUY\s+HIEM", 10),
                     (r"\bUN\s*(NO|NUMBER)", 3), (r"FLASH\s*POINT", 3), (r"IMO\s+FAL\s+FORM\s+7\b", 8)],
     "CREW_EFFECTS": [(r"CREW'?S?\s+EFFECTS", 12), (r"HANH\s+LY\s+THUYEN\s+VIEN", 12), (r"IMO\s+FAL\s+FORM\s+4\b", 8)],
+    # ship's certificates are reference documents, not declarations (registry, ISSC, sanitation, phytosanitary...)
+    "CERTIFICATE": [(r"SHIP'?S?\s+PARTICULARS", 25), (r"THONG\s+SO\s+KY\s+THUAT\s+TAU", 25), (r"CERTIFICATE\s+OF\s+REGISTRY", 25), (r"GIAY\s+CHUNG\s+NHAN\s+DANG\s+KY\s+TAU", 25),
+                    (r"INTERNATIONAL\s+SHIP\s+SECURITY\s+CERTIFICATE", 25), (r"CHUNG\s+NHAN\s+QUOC\s+TE\s+VE\s+AN\s+NINH", 25),
+                    (r"SANITATION\s+CONTROL(\s+EXEMPTION)?\s+CERTIFICATE", 25), (r"MIEN\s+XU\s+LY\s+VE\s+SINH", 25),
+                    (r"PHYTOSANITARY\s+CERTIFICATE", 25), (r"SAFETY\s+MANAGEMENT\s+CERTIFICATE", 25), (r"DOCUMENT\s+OF\s+COMPLIANCE", 20),
+                    (r"PORT\s+CLEARANCE", 20), (r"GIAY\s+PHEP\s+ROI\s+CANG", 20)],
+    # operational / commercial papers: kept for reference, never mapped to the NSW declaration
+    "REFERENCE": [(r"STATEMENT\s+OF\s+FACTS?", 25), (r"NOTICE\s+OF\s+READINESS", 25), (r"DRAFT\s+SURVEY", 25), (r"VOYAGE\s+MEMORY", 25),
+                  (r"KE\s+HOACH\s+TAU\s+(CAP|ROI)", 25), (r"BERTHING\s+PLAN", 20), (r"LETTER\s+OF\s+PROTEST", 25), (r"STOWAGE\s+PLAN", 20),
+                  (r"MATE'?S\s+RECEIPT", 20), (r"XIN\s+VI\s+TRI\s+NEO", 20), (r"XAC\s+BAO\s+TAU\s+DI\s+CHUYEN", 25),
+                  (r"CONFIRMATION\s+OF\s+SHIFTING", 25), (r"TIME\s+SHEET", 20)],
     "SHIP_SECURITY": [(r"SHIP\s+SECURITY", 10), (r"PRE[\s-]*ARRIVAL\s+SECURITY", 12), (r"AN\s+NINH\s+TAU", 10), (r"\bISSC\b", 5),
                       (r"SECURITY\s+LEVEL", 4), (r"LAST\s+(10|TEN)\s+PORTS?", 6), (r"SHIP\s+SECURITY\s+OFFICER", 3)],
     "HEALTH_DECLARATION": [(r"DECLARATION\s+OF\s+HEALTH", 12), (r"MARITIME\s+DECLARATION", 10), (r"Y\s+TE\s+HANG\s+HAI", 12),
-                           (r"SHIP\s+SANITATION", 4), (r"HEALTH\s+QUESTIONS", 5), (r"DECLARATION\s+FOR\s+HEALTH", 12)],
+                           (r"SHIP\s+SANITATION", 4), (r"HEALTH\s+QUESTIONS", 5), (r"DECLARATION\s+FOR\s+HEALTH", 12),
+                           (r"KHAI\s+BAO\s+Y\s+TE", 12), (r"KIEM\s+DICH\s+Y\s+TE", 10)],
     "PLANT_DECLARATION": [(r"DECLARATION\s+FOR\s+PLANT", 12), (r"KIEM\s+DICH\s+THUC\s+VAT", 12), (r"PHYTOSANITARY", 8), (r"PLANT\s+QUARANTINE", 10)],
     "ANIMAL_DECLARATION": [(r"DECLARATION\s+FOR\s+ANIMAL", 12), (r"KIEM\s+DICH\s+DONG\s+VAT", 12), (r"ANIMAL\s+QUARANTINE", 10),
                            (r"VETERINARY", 6)],
@@ -62,6 +76,24 @@ CLASSIFY_RULES = {
     "SHIP_STORES": [(r"SHIP'?S?\s+STORES?", 12), (r"DU\s+TRU\s+(CUA\s+)?TAU", 12), (r"IMO\s+FAL\s+FORM\s+3\b", 8),
                     (r"NAME\s+OF\s+ARTICLE", 4), (r"LOCATION\s+ON\s+BOARD", 3)],
 }
+
+
+def document_title_type(text, top_lines=12):
+    """Type whose main title (pattern weight >= 8) appears in the first lines; strongest title wins, then earliest."""
+    lines = [N.strip_accents(l).upper().strip() for l in (text or "").splitlines() if l.strip()][:top_lines]
+    best = None
+    for li, line in enumerate(lines):
+        core = re.sub(r"[^A-Z0-9]", "", line)
+        for t, rules in CLASSIFY_RULES.items():
+            for pat, w in rules:
+                if w < 8:
+                    continue
+                m = re.search(pat, line)
+                # a title line is (mostly) the title itself, not a phrase inside a long sentence / table row
+                if m and len(re.sub(r"[^A-Z0-9]", "", m.group(0))) >= 0.35 * max(1, len(core)) and \
+                        (best is None or (w, -li) > (best[1], -best[2])):
+                    best = (t, w, li)
+    return best[0] if best else None
 
 
 def classify(pages):
@@ -77,9 +109,12 @@ def classify(pages):
                 if re.search(pat, title):
                     s += w  # title lines count double
         scores[t] = s
+    titled = document_title_type(pages[0]["text"]) if pages else None
+    if titled:
+        scores[titled] += 30  # the document's own title beats keywords mentioned in its body
     best = max(scores, key=scores.get)
     total = sum(scores.values()) or 1
-    if scores[best] < 6:
+    if scores[best] < (6 if titled else 10):  # without a title, a single body keyword is not enough
         return "OTHER", 0.0, scores
     return best, round(scores[best] / total, 2), scores
 
@@ -89,13 +124,16 @@ H = {
     "vessel_name": ("Tên tàu / Vessel name", [r"name\s+of\s+(the\s+)?(ship|vessel)", r"vessel'?s?\s+name", r"ship'?s?\s+name", r"name\s+and\s+type\s+of\s+ship",
                                               r"vessel\s*(name)?(?=\s*[:\-])", r"t[eê]n\s+t[aà]u", r"ocean\s+vessel", r"^\s*vessel\b(?!\s+(type|flag))"]),
     "imo": ("IMO Number", [r"imo\s*(no\.?|number|nr\.?)?(?=\s*[:\.\-\s]\s*\d)", r"imo\s+number", r"imo\s+no"]),
-    "call_sign": ("Call sign", [r"call\s*sign", r"\bircs\b", r"h[oô]\s+hi[eệ]u"]),
-    "flag": ("Flag / Quốc tịch", [r"flag\s+state(\s+of\s+ship)?", r"\bflag\b", r"nationality\s+of\s+(ship|vessel)", r"qu[oố]c\s+t[iị]ch\s+t[aà]u", r"port\s+of\s+registry"]),
-    "voyage_no": ("Voyage No.", [r"voyage\s*(no\.?|number|nr\.?)", r"\bvoy\b\.?\s*(no\.?)?", r"^\s*voyage\b(?=\s*[:\-]|\s{2,}\S)", r"s[oố]\s+chuy[eế]n", r"chuy[eế]n\s+s[oố]"]),
-    "port_of_arrival": ("Port of arrival", [r"port\s+of\s+arrival(\s*/\s*departure)?", r"port\s+of\s+call(?!\s*[:\-]?\s*last)", r"arrival\s+port", r"c[aả]ng\s+[dđ][eế]n"]),
-    "last_port": ("Last port of call", [r"last\s+port(\s+of\s+call)?", r"previous\s+port", r"port\s+arrived\s+from", r"arrived\s+from", r"c[aả]ng\s+r[oờ]i\s+cu[oố]i"]),
+    "call_sign": ("Call sign", [r"call\s*sign", r"\bircs\b", r"h[oô]\s+hi[eệ]u", r"distinctive\s+(number\s+or\s+)?letters"]),
+    "flag": ("Flag / Quốc tịch", [r"flag\s+state(\s+of\s+ship)?", r"\bflag\b", r"nationality\s+of\s+(ship|vessel)", r"qu[oố]c\s+t[iị]ch\s+t[aà]u"]),  # port of registry is NOT the flag
+    "voyage_no": ("Voyage No.", [r"voyage\s*(no\.?|number|nr\.?)", r"\bchuy[eế]n(?=\s*:)", r"\bvoy\b\.?\s*(no\.?)?", r"^\s*voyage\b(?=\s*[:\-]|\s{2,}\S)", r"s[oố]\s+chuy[eế]n", r"chuy[eế]n\s+s[oố]"]),
+    "port_of_arrival": ("Port of arrival", [r"c[aả]ng\s+[dđ][eế]n\s*/\s*r[oờ]i", r"port\s+of\s+arrival\s*/\s*departure", r"port\s+of\s+arrival(\s*/\s*departure)?", r"port\s+of\s+call(?!\s*[:\-]?\s*last)", r"arrival\s+port", r"c[aả]ng\s+[dđ][eế]n"]),
+    "last_port": ("Last port of call", [r"last\s+port\s+of\s+call\s*/\s*port\s+of\s+destination", r"last\s+port(\s+of\s+call)?",
+                                         r"c[aả]ng\s+r[oờ]i\s+cu[oố]i(\s+c[uù]ng)?(\s*/\s*c[aả]ng\s+[dđ][ií]ch)?", r"previous\s+port", r"port\s+arrived\s+from", r"arrived\s+from", r"c[aả]ng\s+r[oờ]i\s+cu[oố]i"]),
     "next_port": ("Next port of call", [r"next\s+port(\s+of\s+call)?", r"c[aả]ng\s+[dđ][eế]n\s+ti[eế]p"]),
-    "eta": ("ETA", [r"\beta\b", r"estimated\s+time\s+of\s+arrival", r"date\s*(and|&|-)\s*time\s+of\s+arrival", r"arrival\s+date"]),
+    "eta": ("ETA", [r"\beta\b(?!\s+pilot)", r"estimated\s+time\s+of\s+arrival", r"date\s*(and|&|-)\s*time\s+of\s+arrival", r"arrival\s+date",
+                    r"time\s+of\s+arrival", r"date\s+of\s+arrival", r"th[oờ]i\s+gian\s+[dđ][eế]n(\s*/\s*r[oờ]i)?",
+                    r"ng[aà]y\s+[dđ][eế]n(\s*/\s*r[oờ]i)?"]),
     "etd": ("ETD", [r"\betd\b", r"estimated\s+time\s+of\s+departure", r"departure\s+date"]),
     "master_name": ("Master name", [r"name\s+of\s+master", r"master'?s?\s+name", r"\bmaster\b(?=\s*[:\-])", r"captain(?=\s*[:\-])", r"thuy[eề]n\s+tr[uư][oở]ng"]),
     "crew_count": ("Number of crew", [r"number\s+of\s+crew", r"no\.?\s+of\s+crew", r"crew\s+(number|on\s+board)", r"s[oố]\s+thuy[eề]n\s+vi[eê]n"]),
@@ -113,8 +151,8 @@ H = {
     "rob_fw": ("ROB FW", [r"\bf\.?w\.?\b(?=\s*[:\-]?\s*\d)", r"fresh\s+water", r"rob\s+fw"]),
     "cargo_brief": ("Brief description of cargo", [r"brief\s+description\s+of\s+(the\s+)?cargo", r"cargo\s+on\s+board", r"description\s+of\s+cargo"]),
     "purpose_of_call": ("Purpose of call", [r"purpose\s+of\s+call"]),
-    "port_of_loading": ("Port of loading", [r"port\s+of\s+loading", r"\bpol\b", r"loading\s+port", r"c[aả]ng\s+x[eế]p"]),
-    "port_of_discharge": ("Port of discharge", [r"port\s+of\s+discharge", r"\bpod\b", r"discharge\s+port", r"c[aả]ng\s+d[oỡ]"]),
+    "port_of_loading": ("Port of loading", [r"port\s+of\s+loading", r"\bpol\b", r"loading\s+port", r"c[aả]ng\s+x[eế]p(\s+h[aà]ng)?"]),
+    "port_of_discharge": ("Port of discharge", [r"port\s+of\s+discharge", r"\bpod\b", r"discharge\s+port", r"c[aả]ng\s+d[oỡ](\s+h[aà]ng)?"]),
     "place_of_delivery": ("Place of delivery", [r"place\s+of\s+delivery", r"final\s+destination"]),
     "date_of_issue": ("Date of issue", [r"date\s+of\s+issue", r"place\s+and\s+date\s+of\s+issue", r"issued?\s+(on|date)"]),
     "certificate_no": ("Certificate No.", [r"certificate\s+no\.?", r"cert\.?\s+no"]),
@@ -122,7 +160,7 @@ H = {
     "bl_no": ("B/L No.", [r"b\s*/\s*l\s*(no\.?|number|nr)", r"bill\s+of\s+lading\s+(no\.?|number)", r"\bbl\s*(no\.?|number)", r"s[oố]\s+v[aậ]n\s+[dđ][oơ]n"]),
     "shipper": ("Shipper", [r"\bshipper\b(\s*/\s*exporter)?", r"consignor", r"ng[uư][oờ]i\s+g[uử]i\s+h[aà]ng"]),
     "consignee": ("Consignee", [r"\bconsignee\b", r"ng[uư][oờ]i\s+nh[aậ]n\s+h[aà]ng"]),
-    "notify": ("Notify party", [r"notify\s+part(y|ies)", r"also\s+notify", r"\bnotify\b"]),
+    "notify": ("Notify party", [r"notify\s+part(y|ies)", r"notify\s+address", r"also\s+notify", r"\bnotify\b"]),
     "packages": ("Number of packages", [r"(no\.?|number)\s+of\s+(packages|pkgs)", r"total\s+(no\.?\s+of\s+)?packages", r"\bpackages\b(?=\s*[:\-])", r"quantity(?=\s*[:\-])"]),
     "gross_weight": ("Gross weight", [r"gross\s+weight", r"\bg\s*\.?\s*w\.?\b(?=\s*[:\-\s]\s*\d)", r"total\s+weight"]),
     "net_weight": ("Net weight", [r"net\s+weight", r"\bn\s*\.?\s*w\.?\b(?=\s*[:\-\s]\s*\d)"]),
@@ -161,6 +199,8 @@ DOC_HEADER_FIELDS = {
     "PLANT_DECLARATION": ["vessel_name", "imo", "call_sign", "flag", "voyage_no", "port_of_loading", "next_port"],
     "ANIMAL_DECLARATION": ["vessel_name", "imo", "call_sign", "flag", "voyage_no", "next_port"],
     "EMPTY_CONTAINER_LIST": ["vessel_name", "imo", "call_sign", "flag", "voyage_no", "port_of_discharge"],
+    "CERTIFICATE": ["vessel_name", "imo", "call_sign", "flag"],
+    "REFERENCE": ["vessel_name", "imo", "call_sign", "flag", "voyage_no"],
     "OTHER": ["vessel_name", "imo", "call_sign", "flag", "voyage_no"],
 }
 BL_HEADER_FIELDS = ["bl_no", "shipper", "consignee", "notify", "port_of_loading", "port_of_discharge", "place_of_delivery",
@@ -203,7 +243,8 @@ T = {
     "cargo": {
         "seq": [r"^no\.?$", r"^stt$", r"^item$"],
         "bl_no": [r"b\s*/\s*l", r"bill\s+of\s+lading", r"\bbl\s*no", r"v[aậ]n\s+[dđ][oơ]n"],
-        "shipper": [r"shipper", r"consignor"], "consignee": [r"consignee"], "notify": [r"notify"],
+        "shipper": [r"shipper", r"consignor", r"ng[uư][oờ]i\s+g[uử]i"], "consignee": [r"consignee", r"ng[uư][oờ]i\s+nh[aậ]n"],
+        "notify": [r"notify", r"ng[uư][oờ]i\s+(nh[aậ]n\s+)?th[oô]ng\s+b[aá]o"],
         "marks": [r"marks"],
         "packages": [r"(no\.?|number)\s+of\s+(packages|pkgs)", r"^packages?$", r"^pkgs?\.?$", r"^q(uan)?ty", r"quantity", r"s[oố]\s+ki[eệ]n"],
         "package_kind": [r"kind\s+of\s+packages?", r"package\s+type", r"^type$", r"lo[aạ]i\s+ki[eệ]n"],
@@ -216,7 +257,7 @@ T = {
         "seal_no": [r"seal"],
         "pol": [r"port\s+of\s+loading", r"^pol$", r"loading"],
         "pod": [r"port\s+of\s+discharge", r"^pod$", r"discharg"],
-        "hs_code": [r"hs\s*code", r"h\.s\."],
+        "hs_code": [r"hs\s*code", r"h\.s\.", r"m[aã]\s+s[oố]\s+h[aà]ng"],
         "_required": ["bl_no", "description|gross_weight|packages"],
     },
     "dg": {
@@ -237,7 +278,7 @@ T = {
         "bl_no": [r"b\s*/\s*l", r"booking", r"bill\s+of\s+lading", r"v[aậ]n\s+[dđ][oơ]n"],
         "container_no": [r"container\s*(no|number)?", r"\bcntr", r"s[oố]\s+(hi[eệ]u\s+)?cont"],
         "container_type": [r"cont(ainer)?\.?\s*type", r"size\s*/?\s*type", r"^size$", r"^type$", r"lo[aạ]i\s+cont"],
-        "pod": [r"port\s+of\s+discharge", r"^pod$", r"discharg", r"c[aả]ng\s+d[oỡ]"],
+        "pod": [r"port\s+of\s+discharge", r"^pod$", r"discharg", r"c[aả]ng\s+d[oỡ](\s+h[aà]ng)?"],
         "_required": ["container_no", "bl_no|container_type|pod"],
     },
     "port_calls": {
@@ -314,6 +355,7 @@ def _label_hits(line, keys):
             for m in rx.finditer(line):
                 if m.end() > m.start():
                     cands.append((m.start(), m.end(), k))
+    cands = [c for c in cands if line[:c[0]].count("(") <= line[:c[0]].count(")")]  # "(gồm cả thuyền trưởng)" is not a label
     cands.sort(key=lambda c: (c[0], -(c[1] - c[0])))
     hits, last_end = [], -1
     for c in sorted(cands, key=lambda c: -(c[1] - c[0])):
@@ -323,13 +365,14 @@ def _label_hits(line, keys):
     return hits
 
 
-_SEP = re.compile(r"^[\s:：\-–=\.\|/)\]]*(?:\((?:[^)]{0,20})\))?[\s:：\-–=\.\|)\]]*")
+_SEP = re.compile(r"^[\s:：\-–=\.\|/)\]]*(?:\((?:[^)]{0,45})\))?[\s:：\-–=\.\|)\]]*")
 # an unknown label further on the same line: 1-3 Title-case words + ':' (e.g. " Inspection Order No.: ...")
 _NEXT_LABEL = re.compile(r"\s+(?:[A-ZĐ][a-zà-ỹđ]+\.?\s?){1,3}(?:No\.?|Number)?\s*[:：]\s")
 
 
 def _clean_value(v):
     v = _SEP.sub("", v or "").strip()
+    v = re.split(r"\s{3,}|\t", v)[0]  # next table column / tab stop = next field
     v = re.split(r"\s*\|\s*", v)[0]
     v = _NEXT_LABEL.split(v)[0]  # "VINH QUANG GOLD | Số chuyến: 09/2023" -> next field starts after '|' 
     v = re.sub(r"\s{2,}", " ", v)
@@ -390,6 +433,16 @@ def extract_header(pages, keys, all_keys=None):
                     continue
                 conf = 0.95 if method != "ocr" else _word_conf(page, val)
                 found[k] = {"value": val, "page_no": page["page_no"], "confidence": conf, "method": method}
+    if ("draft_fwd" in keys or "draft_aft" in keys) and "draft_fwd" not in found:
+        for page in pages:
+            m = re.search(r"(draft|draught|m[oớ]n\s+n[uư][oớ]c)[^\n]{0,40}?\bF\w*\s*[:.]?\s*([\d.,]+)\s*m?\s*[/,;]\s*A\w*\s*[:.]?\s*([\d.,]+)",
+                          _fold(page["text"]), re.I)
+            if m:
+                for key, val in (("draft_fwd", m.group(2)), ("draft_aft", m.group(3))):
+                    if key in keys:
+                        found[key] = {"value": val + " m", "page_no": page["page_no"], "confidence": 0.9 if page["method"] != "ocr" else 0.7,
+                                      "method": page["method"]}
+                break
     # regex fallbacks for strongly-typed identifiers
     if "imo" in keys and "imo" not in found:
         for page in pages:
@@ -405,15 +458,32 @@ def _post_header(k, v):
     if k == "imo":
         m = re.search(r"\b(\d{7})\b", v)
         return m.group(1) if m else None
+    if k == "call_sign":
+        m = re.search(r"\b([A-Z0-9]{4,8})\b", v.upper())
+        return m.group(1) if m and re.search(r"\d", m.group(1)) or (m and len(m.group(1)) >= 4) else None
+    if k in ("gross_tonnage", "net_tonnage", "dwt"):
+        m = re.search(r"\d[\d.,]*(\s*(GT|NT|MT|T|TONS?|MTS))?", v, re.I)
+        return m.group(0) if m else None  # "(" or a label fragment is not a tonnage
+    if k in ("eta", "etd"):
+        return v if N.parse_date(v)[1] else None  # an arrival time must contain a date ("Pilot Vũng Tàu)" is not one)
+    if k == "last_port":
+        v = re.split(r"\s+/\s+", v)[0]  # "SURABAYA, INDONESIA / CẢNG ĐÍCH ..." -> last port only
+    if k == "master_name":
+        v = re.sub(r"^(CAPT\.?|CAPTAIN|MASTER)\s+", "", v.strip(), flags=re.I)
+        if not re.match(r"^[A-Za-zÀ-ỹĐđ]", v) or len(re.findall(r"[A-Za-zÀ-ỹĐđ]{2,}", v)) < 2 or re.search(r"[()]", v):
+            return None  # signature-block text, not a name
     if k in ("crew_count", "passenger_count"):
         m = re.search(r"\b(\d{1,4})\b", v)
         return m.group(1) if m else None
     if k in ("vessel_name",):
-        v = re.split(r"\s{3,}|\bIMO\b|\bFLAG\b|\bCALL\s*SIGN\b", v, flags=re.I)[0]
+        v = re.split(r"\s{3,}|\bIMO\b|\bFLAG\b|\bCALL\s*SIGN\b|\s+[—–]\s+|\s+-\s+|\s*\(|\s+\d+\.\d*\s", v, flags=re.I)[0]
+        v = v.strip(" ,;:/|-–—")
         v = re.sub(r"^(M/?V|M\.V\.|MV)\s+", "", v.strip(), flags=re.I)
         # sentence fragments ("at the port of ...") are not vessel names
         if re.match(r"^(AT|IN|ON|TO|FROM|OF|FOR|WITH|AND|THE|IS|WAS|WILL|SHALL|HAS|BY|AS|ARRIV\w*|DEPART\w*)\b", N.strip_accents(v).upper()):
             return None
+        if N.strip_accents(v).upper().strip(" .:") in ("VOYAGE", "VESSEL", "SHIP", "NAME", "TYPE", "FLAG", "VOY", "PORT"):
+            return None  # a column title, not a name
         if not re.match(r"^[A-Z0-9]", N.strip_accents(v).upper()) or re.match(r"^'?S\s+NAME\b", N.strip_accents(v).upper()):
             return None  # "'s Name (" = leftover of the label "Vessel's Name", not a name
     if k == "voyage_no":
@@ -429,7 +499,7 @@ def _match_header(row, section):
     mapping = {}
     for ci, cell in enumerate(row):
         c = _fold(cell).strip().lower()
-        if not c or len(c) > 80:
+        if not c or len(c) > 180:
             continue
         best, best_len = None, 0
         for f, rxs in spec.items():
@@ -487,8 +557,11 @@ def extract_table(pages, section):
                     if ri + 1 < len(table):
                         m2 = _match_header(table[ri + 1], section)
                         if len(m2) >= 3 and not any(_looks_like_data(c) for c in table[ri + 1]):
-                            for k, v in m2.items():
-                                mapping.setdefault(k, v)
+                            if len(table[ri + 1]) > len(r):
+                                mapping = m2  # sub-header splits merged cells (e.g. 'Họ tên...' -> 'Người gửi' | 'Người nhận')
+                            else:
+                                for k, v in m2.items():
+                                    mapping.setdefault(k, v)
                             start = ri + 2
                     break
             if mapping is None and state and state[2] == source and table and len(table[0]) == state[1]:
@@ -524,6 +597,15 @@ def extract_table(pages, section):
                             conf = 0.85  # column split from text layout is less certain than a ruled table
                         fields[f] = {"value": val, "page_no": page["page_no"], "confidence": round(conf, 2),
                                      "method": page["method"] + ("-table" if source == "table" else "-columns")}
+                _split_combined(fields)
+                if section == "cargo" and "gross_weight" not in fields:
+                    for src in ("packages", "description"):
+                        f = fields.get(src)
+                        wm = f and re.search(r"(\d[\d.,]*)\s*(MTS?|TNE|TONS?|KGS?|KGM)\b", f["value"], re.I)
+                        if wm:
+                            fields["gross_weight"] = {**f, "value": f"{wm.group(1)} {wm.group(2)}", "method": f["method"] + "-weight-in-" + src,
+                                                      "confidence": min(f["confidence"], 0.85)}
+                            break
                 for f, u in units.items():
                     if f in fields and not re.search(r"[A-Za-z]{2,}", fields[f]["value"]):
                         fields[f + "_unit"] = {**fields[f], "value": u, "method": fields[f]["method"] + "-header-unit"}
@@ -543,6 +625,30 @@ def extract_table(pages, section):
             if got:
                 used_page = True
     return records
+
+
+_DATE_HEAD = re.compile(r"^\s*(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}|\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})\s*[-–,;/]?\s*(.*)$")
+
+
+def _split_combined(fields):
+    """Columns that hold two values in Vietnamese forms:
+    'Ngày và nơi sinh' = '14/05/1976 - THAI BINH'; 'Số hộ chiếu & hết hạn' = 'C6829104 (12/08/2029)'."""
+    for key in ("dob", "pob"):
+        f = fields.get(key)
+        if f and not ("dob" in fields and "pob" in fields):
+            m = _DATE_HEAD.match(f["value"])
+            if m and m.group(2).strip():
+                fields["dob"] = {**f, "value": m.group(1)}
+                fields["pob"] = {**f, "value": m.group(2).strip(" -–,")}
+            elif m and key == "pob":
+                fields["dob"] = {**f, "value": m.group(1)}
+                fields.pop("pob")
+    f = fields.get("passport_no")
+    if f and "passport_expiry" not in fields:
+        m = re.match(r"^\s*([A-Z0-9][A-Z0-9\-]{4,})\s*[(/,;\-–]\s*(?:exp\w*\.?:?\s*)?(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4})\)?\s*$", f["value"], re.I)
+        if m:
+            fields["passport_no"] = {**f, "value": m.group(1)}
+            fields["passport_expiry"] = {**f, "value": m.group(2)}
 
 
 def _looks_like_data(c):
@@ -628,7 +734,11 @@ def normalise_field(key, value):
     if key == "container_type":
         sizes = N.container_sizes(v)
         return ", ".join(sizes) if sizes else v
-    if key in ("bl_no", "call_sign"):
+    if key == "bl_no":
+        # "SUB/LA-231008 Ngày: 10/10/2023" -> the number only (date written next to it in manifests)
+        v = re.split(r"\s+(?:ng[aà]y|date[d]?|dd|d\.)\b|\s+\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}|\s*\(", v, flags=re.I)[0]
+        return re.sub(r"\s+", "", v).upper()
+    if key == "call_sign":
         return re.sub(r"\s+", "", v).upper()
     return re.sub(r"\s+", " ", v)
 
@@ -652,6 +762,12 @@ def extract_document(doc_type, pages):
         recs = extract_table(pages, section)
         if not recs and section == "cargo":
             recs = extract_block_manifest(pages)
+        if section == "cargo" and doc_type == "CARGO_MANIFEST":
+            # ports printed once in the manifest heading apply to every line that has no port column
+            for key, hk in (("pol", "port_of_loading"), ("pod", "port_of_discharge")):
+                if hk in hdr:
+                    for r in recs:
+                        r["fields"].setdefault(key, {**hdr[hk], "method": hdr[hk]["method"] + "-manifest-heading"})
         prefix = {"cargo": "mf", "empty_container": "ec", "port_calls": "port"}.get(section, section)
         for i, r in enumerate(recs, start=1):
             for k, d in r["fields"].items():
