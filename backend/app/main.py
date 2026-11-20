@@ -269,7 +269,7 @@ def _find_duplicate_voyage(c, data):
     for v in db.rows(c, "SELECT * FROM voyages WHERE is_sample=0"):
         same_ship = (data.get("imo") and v["imo"] and N.norm_id(data["imo"]) == N.norm_id(v["imo"])) or \
                     (not (data.get("imo") and v["imo"]) and data.get("vessel_name") and v["vessel_name"]
-                     and N.norm_text(data["vessel_name"]) == N.norm_text(v["vessel_name"]))
+                     and N.vessel_key(data["vessel_name"]) == N.vessel_key(v["vessel_name"]))
         if not same_ship or N.norm_id(v["voyage_no"]) != vno:
             continue
         if data.get("port_of_arrival") and v["port_of_arrival"] and N.norm_text(data["port_of_arrival"]) != N.norm_text(v["port_of_arrival"]):

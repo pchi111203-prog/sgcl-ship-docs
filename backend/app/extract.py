@@ -91,7 +91,7 @@ H = {
     "imo": ("IMO Number", [r"imo\s*(no\.?|number|nr\.?)?(?=\s*[:\.\-\s]\s*\d)", r"imo\s+number", r"imo\s+no"]),
     "call_sign": ("Call sign", [r"call\s*sign", r"\bircs\b", r"h[oô]\s+hi[eệ]u"]),
     "flag": ("Flag / Quốc tịch", [r"flag\s+state(\s+of\s+ship)?", r"\bflag\b", r"nationality\s+of\s+(ship|vessel)", r"qu[oố]c\s+t[iị]ch\s+t[aà]u", r"port\s+of\s+registry"]),
-    "voyage_no": ("Voyage No.", [r"voyage\s*(no\.?|number|nr\.?)", r"\bvoy\b\.?\s*(no\.?)?", r"^\s*voyage\b(?=\s*[:\-]|\s{2,}\S)", r"chuy[eế]n\s+s[oố]"]),
+    "voyage_no": ("Voyage No.", [r"voyage\s*(no\.?|number|nr\.?)", r"\bvoy\b\.?\s*(no\.?)?", r"^\s*voyage\b(?=\s*[:\-]|\s{2,}\S)", r"s[oố]\s+chuy[eế]n", r"chuy[eế]n\s+s[oố]"]),
     "port_of_arrival": ("Port of arrival", [r"port\s+of\s+arrival(\s*/\s*departure)?", r"port\s+of\s+call(?!\s*[:\-]?\s*last)", r"arrival\s+port", r"c[aả]ng\s+[dđ][eế]n"]),
     "last_port": ("Last port of call", [r"last\s+port(\s+of\s+call)?", r"previous\s+port", r"port\s+arrived\s+from", r"arrived\s+from", r"c[aả]ng\s+r[oờ]i\s+cu[oố]i"]),
     "next_port": ("Next port of call", [r"next\s+port(\s+of\s+call)?", r"c[aả]ng\s+[dđ][eế]n\s+ti[eế]p"]),
@@ -328,6 +328,7 @@ _SEP = re.compile(r"^[\s:：\-–=\.\|/]*(?:\((?:[^)]{0,20})\))?[\s:：\-–=\.\
 
 def _clean_value(v):
     v = _SEP.sub("", v or "").strip()
+    v = re.split(r"\s*\|\s*", v)[0]  # "VINH QUANG GOLD | Số chuyến: 09/2023" -> next field starts after '|' 
     v = re.sub(r"\s{2,}", " ", v)
     return v.strip(" |;,")
 

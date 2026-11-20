@@ -295,3 +295,28 @@ def test_header_labels_not_misread_from_prose():
     assert read("The vessel at the port of Ho Chi Minh\nVOYAGE   09/2023") == {"voyage_no": "09/2023"}
     assert read("Name of ship: MV VINH QUANG GOLD\nArrival of the vessel AT THE PORT is expected") == {"vessel_name": "VINH QUANG GOLD"}
     assert read("Vessel: VINH QUANG GOLD   Voy. No: 2311N") == {"vessel_name": "VINH QUANG GOLD", "voyage_no": "2311N"}
+
+
+
+def test_vessel_prefix_and_pipe_separated_fields():
+    """'MV VINH QUANG GOLD' = 'VINH QUANG GOLD'; 'Tên tàu: X | Số chuyến: Y' read as two fields."""
+    from app import extract, normalize as N
+    from app.crosscheck import _cmp_vessel
+    assert _cmp_vessel("MV VINH QUANG GOLD", "VINH QUANG GOLD") and _cmp_vessel("M/V Vinh Quang Gold", "m.v. VINH QUANG GOLD")
+    assert not _cmp_vessel("MV VINH QUANG GOLD", "VINH QUANG STAR")
+    pages = [{"page_no": 1, "method": "docx", "confidence": 1.0, "tables": [],
+              "text": "Tên tàu: MV VINH QUANG GOLD | Số chuyến: 09/2023 | IMO: 9395044"}]
+    got = {k: v["value"] for k, v in extract.extract_header(pages, ["vessel_name", "voyage_no", "imo"]).items()}
+    assert got == {"vessel_name": "VINH QUANG GOLD", "voyage_no": "09/2023", "imo": "9395044"}, got
+    # wrong-voyage check must accept the 'MV' prefix difference
+    v = client.post("/api/voyages", json={"vessel_name": "MV PREFIX TEST", "voyage_no": "11A"}, headers=H).json()
+    import io
+    from reportlab.pdfgen import canvas
+    buf = io.BytesIO(); cv = canvas.Canvas(buf)
+    for i, line in enumerate(["GENERAL DECLARATION", "Name of ship: PREFIX TEST", "Voyage number: 11A", "Port of arrival: VNCLI"]):
+        cv.drawString(50, 800 - i * 20, line)
+    cv.save()
+    client.post(f"/api/voyages/{v['id']}/documents", files=[("files", ("gd.pdf", buf.getvalue(), "application/pdf"))], headers=H)
+    wait_docs(v["id"])
+    res = results(v["id"])
+    assert not any(r["status"] == "WRONG_VOYAGE" for r in res), [r["message"] for r in res if r["status"] == "WRONG_VOYAGE"]

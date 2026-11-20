@@ -62,6 +62,10 @@ def _cmp_number(a, b):
     return abs(ka[0] - kb[0]) < 0.0005 * max(1, abs(ka[0]))
 
 
+def _cmp_vessel(a, b):
+    return N.vessel_key(a) == N.vessel_key(b)
+
+
 def _cmp_flag(a, b):
     sa, sb = N.suggest_state(a), N.suggest_state(b)
     if sa and sb:
@@ -91,7 +95,7 @@ def _cmp_set(a, b):
 
 VESSEL_CHECKS = [
     # field, comparator, document types compared
-    ("vessel_name", _cmp_text, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "TONNAGE_CERTIFICATE"]),
+    ("vessel_name", _cmp_vessel, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "TONNAGE_CERTIFICATE"]),
     ("imo", _cmp_id, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "TONNAGE_CERTIFICATE"]),
     ("call_sign", _cmp_id, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "TONNAGE_CERTIFICATE"]),
     ("flag", _cmp_flag, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "TONNAGE_CERTIFICATE"]),
@@ -196,7 +200,7 @@ def check_mixed_vessels(c: Ctx):
         for f in c.header(key):
             d = c.docs.get(f["document_id"])
             if d and not d.get("voyage_confirmed"):
-                groups[N.norm_id(f["value"]) if key == "imo" else N.norm_text(f["value"])].append(f)
+                groups[N.norm_id(f["value"]) if key == "imo" else N.vessel_key(f["value"])].append(f)
         if len(groups) > 1:
             detail = "; ".join(f"'{fs[0]['value']}': " + ", ".join(sorted({c.doc_name(x['document_id']) for x in fs})) for fs in groups.values())
             c.add(GROUP_DOC, "WRONG_VOYAGE", f"Bộ chứng từ có {len(groups)} {label} khác nhau - nghi trộn lẫn chứng từ của nhiều chuyến tàu. {detail}",
@@ -223,7 +227,7 @@ def check_wrong_voyage(c: Ctx):
     for doc_id, d in c.docs.items():
         if d.get("voyage_confirmed"):
             continue  # staff checked the original and confirmed it belongs to this voyage
-        for key, cmp in (("vessel_name", _cmp_text), ("imo", _cmp_id), ("voyage_no", _cmp_id)):
+        for key, cmp in (("vessel_name", _cmp_vessel), ("imo", _cmp_id), ("voyage_no", _cmp_id)):
             fs = [f for f in c.header(key) if f["document_id"] == doc_id]
             if not fs:
                 continue

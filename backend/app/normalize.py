@@ -350,3 +350,13 @@ def container_sizes(text):
             if c not in out:
                 out.append(c)
     return out
+
+
+_VESSEL_PREFIX = re.compile(r"^(M\s*/\s*V|M\.\s*V\.?|MV|M\s*/\s*T|M\.\s*T\.?|MT|M\s*/\s*S|MS|SS|S\.S\.|TB|T/B|TV|SB|LPG/C|LNG/C|MY)\s+", re.I)
+
+
+def vessel_key(s):
+    """Comparison key for vessel names: 'MV VINH QUANG GOLD', 'M/V Vinh Quang Gold', 'VINH QUANG GOLD' -> 'VINH QUANG GOLD'."""
+    t = strip_accents(str(s or "")).strip()
+    t = _VESSEL_PREFIX.sub("", t)
+    return norm_text(t)
