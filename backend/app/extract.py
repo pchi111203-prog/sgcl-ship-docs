@@ -87,11 +87,11 @@ def classify(pages):
 # ------------------------------------------------------------------ header labels
 H = {
     "vessel_name": ("Tên tàu / Vessel name", [r"name\s+of\s+(the\s+)?(ship|vessel)", r"vessel'?s?\s+name", r"ship'?s?\s+name", r"name\s+and\s+type\s+of\s+ship",
-                                              r"vessel\s*(name)?(?=\s*[:\-])", r"t[eê]n\s+t[aà]u", r"ocean\s+vessel", r"\bvessel\b(?!\s+(type|flag))"]),
+                                              r"vessel\s*(name)?(?=\s*[:\-])", r"t[eê]n\s+t[aà]u", r"ocean\s+vessel", r"^\s*vessel\b(?!\s+(type|flag))"]),
     "imo": ("IMO Number", [r"imo\s*(no\.?|number|nr\.?)?(?=\s*[:\.\-\s]\s*\d)", r"imo\s+number", r"imo\s+no"]),
     "call_sign": ("Call sign", [r"call\s*sign", r"\bircs\b", r"h[oô]\s+hi[eệ]u"]),
     "flag": ("Flag / Quốc tịch", [r"flag\s+state(\s+of\s+ship)?", r"\bflag\b", r"nationality\s+of\s+(ship|vessel)", r"qu[oố]c\s+t[iị]ch\s+t[aà]u", r"port\s+of\s+registry"]),
-    "voyage_no": ("Voyage No.", [r"voyage\s*(no\.?|number|nr\.?)", r"\bvoy\.?\s*(no\.?)?", r"chuy[eế]n\s+s[oố]"]),
+    "voyage_no": ("Voyage No.", [r"voyage\s*(no\.?|number|nr\.?)", r"\bvoy\b\.?\s*(no\.?)?", r"^\s*voyage\b(?=\s*[:\-]|\s{2,}\S)", r"chuy[eế]n\s+s[oố]"]),
     "port_of_arrival": ("Port of arrival", [r"port\s+of\s+arrival(\s*/\s*departure)?", r"port\s+of\s+call(?!\s*[:\-]?\s*last)", r"arrival\s+port", r"c[aả]ng\s+[dđ][eế]n"]),
     "last_port": ("Last port of call", [r"last\s+port(\s+of\s+call)?", r"previous\s+port", r"port\s+arrived\s+from", r"arrived\s+from", r"c[aả]ng\s+r[oờ]i\s+cu[oố]i"]),
     "next_port": ("Next port of call", [r"next\s+port(\s+of\s+call)?", r"c[aả]ng\s+[dđ][eế]n\s+ti[eế]p"]),
@@ -407,8 +407,13 @@ def _post_header(k, v):
     if k in ("vessel_name",):
         v = re.split(r"\s{3,}|\bIMO\b|\bFLAG\b|\bCALL\s*SIGN\b", v, flags=re.I)[0]
         v = re.sub(r"^(M/?V|M\.V\.|MV)\s+", "", v.strip(), flags=re.I)
+        # sentence fragments ("at the port of ...") are not vessel names
+        if re.match(r"^(AT|IN|ON|TO|FROM|OF|FOR|WITH|AND|THE|IS|WAS|WILL|SHALL|HAS|BY|AS|ARRIV\w*|DEPART\w*)\b", N.strip_accents(v).upper()):
+            return None
     if k == "voyage_no":
         v = v.split()[0] if v.split() else v
+        if not re.search(r"\d", v):  # a voyage number always contains digits ("AGE", "OF" ... are reading errors)
+            return None
     return v.strip() or None
 
 

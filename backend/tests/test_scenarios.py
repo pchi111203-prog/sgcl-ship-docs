@@ -283,3 +283,15 @@ def test_duplicate_voyage_warning():
     assert c.status_code == 200 and c.json()["voyage_code"] != a.json()["voyage_code"]
     d = client.post("/api/voyages", json={**body, "voyage_no": "78A"}, headers=H)  # another voyage of the same ship
     assert d.status_code == 200
+
+
+def test_header_labels_not_misread_from_prose():
+    """Regression: 'VOYAGE' read as label 'Voy.' + value 'AGE'; prose '...the vessel at the port...' read as vessel name."""
+    from app import extract
+
+    def read(text):
+        pages = [{"page_no": 1, "method": "docx", "confidence": 1.0, "tables": [], "text": text}]
+        return {k: v["value"] for k, v in extract.extract_header(pages, ["vessel_name", "voyage_no"]).items()}
+    assert read("The vessel at the port of Ho Chi Minh\nVOYAGE   09/2023") == {"voyage_no": "09/2023"}
+    assert read("Name of ship: MV VINH QUANG GOLD\nArrival of the vessel AT THE PORT is expected") == {"vessel_name": "VINH QUANG GOLD"}
+    assert read("Vessel: VINH QUANG GOLD   Voy. No: 2311N") == {"vessel_name": "VINH QUANG GOLD", "voyage_no": "2311N"}
