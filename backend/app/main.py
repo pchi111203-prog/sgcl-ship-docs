@@ -563,9 +563,9 @@ def _split_into_children(d, segments, user):
             pages_txt = f"tr.{p_from}" if p_from == p_to else f"tr.{p_from}-{p_to}"
             name = f"{d['original_name']} › phần {i}: {label}" + ("" if d["ext"] == ".docx" else f" ({pages_txt})")
             cur = c.execute("INSERT INTO documents(voyage_id,original_name,stored_name,ext,size,sha256,status,uploaded_by,uploaded_at,parent_id,"
-                            "pages_cache,page_from,page_to) VALUES(?,?,?,?,?,?,'PROCESSING',?,?,?,?,?,?)",
+                            "pages_cache,page_from,page_to,doc_type) VALUES(?,?,?,?,?,?,'PROCESSING',?,?,?,?,?,?,?)",
                             (d["voyage_id"], name, stored, ".pdf" if stored.endswith(".pdf") else d["ext"], d["size"], f"{d['sha256']}:{i}",
-                             user, db.now(), d["id"], cache, p_from, p_to))
+                             user, db.now(), d["id"], cache, p_from, p_to, seg["type"]))
             child_ids.append(cur.lastrowid)
         c.execute("DELETE FROM extracted_fields WHERE document_id=?", (d["id"],))
         c.execute("UPDATE documents SET status='SPLIT', doc_type=NULL, error=?, processed_at=? WHERE id=?",
@@ -606,6 +606,8 @@ def process_document(did, user):
                 _split_into_children(d, segments, user)
                 return
         auto, score, _ = extract.classify(pages)
+        if auto == "OTHER" and d["parent_id"] and d["doc_type"]:
+            auto, score = d["doc_type"], 0.6  # part of a combined file identified by its title/table while splitting
         doc_type = d["doc_type"] if d["doc_type_confirmed"] and d["doc_type"] else auto
         fields = extract.extract_document(doc_type, pages)
         methods = sorted({p["method"] for p in pages})

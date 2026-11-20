@@ -52,6 +52,40 @@ def _heading_type(block):
     return None
 
 
+# list tables that identify a document on their own (column headers), by specificity
+SECTION_DOC = [("effects", "CREW_EFFECTS"), ("dg", "DG_MANIFEST"), ("empty_container", "EMPTY_CONTAINER_LIST"),
+               ("port_calls", "SHIP_SECURITY"), ("passenger", "PASSENGER_LIST"), ("crew", "CREW_LIST"),
+               ("store", "SHIP_STORES"), ("cargo", "CARGO_MANIFEST")]
+# a table of this kind inside a document of that type belongs to it (e.g. the goods table of a B/L)
+_COMPATIBLE = {("BILL_OF_LADING", "CARGO_MANIFEST"), ("GENERAL_DECLARATION", "CARGO_MANIFEST"), ("NOTICE_OF_ARRIVAL", "CARGO_MANIFEST"),
+               ("CREW_EFFECTS", "CREW_LIST"), ("HEALTH_DECLARATION", "CREW_LIST"), ("HEALTH_DECLARATION", "PASSENGER_LIST")}
+
+
+def table_type(rows):
+    """Document type identified by a table's column headers (strong match only), else None."""
+    best, best_n = None, 0
+    for r in (rows or [])[:3]:
+        for section, doc in SECTION_DOC:
+            m = extract._match_header(r, section)
+            if extract._header_ok(m, section) and len(m) >= 4 and len(m) > best_n:
+                best, best_n = doc, len(m)
+    return best
+
+
+def _table_title(rows):
+    """Document title written inside the first row of a layout table (common in Word FAL forms)."""
+    if not rows or not rows[0]:
+        return None
+    cells = [c for c in rows[0] if c and c.strip()]
+    if not cells:
+        return None
+    return _heading_type({"text": cells[0], "styled": True}) or (len(cells) == 1 and title_type(cells[0], top_lines=2))
+
+
+def _starts_new(cur_type, new_type):
+    return bool(new_type) and new_type != cur_type and (cur_type, new_type) not in _COMPATIBLE
+
+
 def _bl_number(page):
     got = extract.extract_header([page], ["bl_no"])
     return N.norm_id(got["bl_no"]["value"]) if "bl_no" in got else None
@@ -69,6 +103,8 @@ def split_pages(pages):
             segs.append({"type": t, "pages": [p]})
         elif t and t != cur["type"]:
             segs.append({"type": t, "pages": [p]})
+        elif not t and _starts_new(cur["type"], next((tt for tt in map(table_type, p.get("tables") or []) if tt), None)):
+            segs.append({"type": next(tt for tt in map(table_type, p.get("tables") or []) if tt), "pages": [p]})
         elif t == "BILL_OF_LADING" and cur["type"] == "BILL_OF_LADING":
             a, b = _bl_number(cur["pages"][0]), _bl_number(p)
             if a and b and a != b:
@@ -83,7 +119,20 @@ def split_pages(pages):
 def _split_docx(page):
     segs = []
     for b in page["blocks"]:
-        t = _heading_type(b) if b["kind"] == "p" else None
+        if b["kind"] == "p":
+            t = _heading_type(b)
+        else:
+            t = _table_title(b["rows"])
+            if not t:
+                tt = table_type(b["rows"])
+                if tt and segs and _starts_new(segs[-1]["type"], tt):
+                    # the list table starts a new document; take its caption paragraph(s) along
+                    caption = []
+                    while segs[-1]["blocks"] and segs[-1]["blocks"][-1]["kind"] == "p" and len(caption) < 3 \
+                            and len((segs[-1]["blocks"][-1].get("text") or "").strip()) <= 120:
+                        caption.insert(0, segs[-1]["blocks"].pop())
+                    segs.append({"type": tt, "blocks": caption + [b]})
+                    continue
         new = t and (not segs or t != segs[-1]["type"] or (t == "BILL_OF_LADING" and segs[-1]["blocks"]))
         if new and t == "BILL_OF_LADING" and segs and segs[-1]["type"] == t:
             # same title repeated: new B/L only if the previous one already has a B/L number

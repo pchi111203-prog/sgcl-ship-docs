@@ -376,3 +376,41 @@ def test_vessel_name_curly_quote_and_trailing_label():
     assert read("Vessel: MV VINH QUANG GOLD Inspection Order No.: CISVN 23.188") == {"vessel_name": "VINH QUANG GOLD"}
     assert read("Ship’s name: M/V VINH QUANG GOLD   IMO No: 9395044") == {"vessel_name": "VINH QUANG GOLD", "imo": "9395044"}
     assert read("Shipper: Mekong Export Co., Ltd") == {"shipper": "Mekong Export Co., Ltd"}
+
+
+
+def test_split_docx_crew_list_without_clear_heading():
+    """Crew List whose title is inside a table cell, and one with only a plain caption: both must become separate documents."""
+    import docx
+    from app import ingest, splitter, extract
+    for variant in ("title_in_table", "plain_caption"):
+        d = docx.Document()
+        p = d.add_paragraph()
+        p.add_run("GENERAL DECLARATION").bold = True
+        for line in ["Name of ship: MV TEST STAR", "Voyage number: 12A", "Number of crew: 3", "Port of arrival: VNCLI"]:
+            d.add_paragraph(line)
+        p = d.add_paragraph()
+        p.add_run("NOTICE OF ARRIVAL").bold = True
+        d.add_paragraph("Vessel name: MV TEST STAR")
+        d.add_paragraph("ETA: 01/12/2026 08:00")
+        if variant == "plain_caption":
+            d.add_paragraph("Danh sách thuyền viên / Crew list of the vessel")
+        rows = [["No.", "Name", "Rank", "Nationality", "Date of birth", "Passport No."],
+                ["1", "NGUYEN VAN A", "MASTER", "VIETNAMESE", "01/01/1980", "C1234567"],
+                ["2", "TRAN VAN B", "C/O", "VIETNAMESE", "02/02/1985", "C2345678"],
+                ["3", "LE VAN C", "AB", "VIETNAMESE", "03/03/1990", "C3456789"]]
+        if variant == "title_in_table":
+            rows = [["CREW LIST (IMO FAL Form 5)", "", "", "", "", ""]] + rows
+        t = d.add_table(rows=0, cols=6)
+        for r in rows:
+            cells = t.add_row().cells
+            for i, x in enumerate(r):
+                cells[i].text = x
+        path = os.path.join(tempfile.mkdtemp(), "combined.docx")
+        d.save(path)
+        segs = splitter.split_pages(ingest.read_document(path))
+        types = [s["type"] for s in segs]
+        assert types == ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "CREW_LIST"], (variant, types)
+        crew = segs[2]["pages"]
+        assert extract.classify(crew)[0] == "CREW_LIST", variant
+        assert len({f["record_key"] for f in extract.extract_document("CREW_LIST", crew) if f["section"] == "crew"}) == 3
