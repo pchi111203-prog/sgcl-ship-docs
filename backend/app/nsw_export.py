@@ -20,27 +20,34 @@ from .xlsxpatch import Book, col2num, num2col, split_ref
 
 SIGNERS = ["Thuyền trưởng/Master", "Đại lý/ShipAgency", "Chủ tàu/ShipOwner"]
 NAME_SPLITS = {
-    "full_in_both": "Ghi họ tên đầy đủ vào cả cột Họ và cột Tên (giống dòng mẫu trong file NSW)",
+    "dash_family": "Họ = '-', Tên = họ tên đầy đủ (cách SGCL đang khai trong file NSW thực tế)",
+    "full_in_both": "Ghi họ tên đầy đủ vào cả cột Họ và cột Tên",
     "last_word_given": "Họ = các từ đầu, Tên = từ cuối cùng (VD: NGUYEN VAN | AN)",
     "first_word_family": "Họ = từ đầu tiên, Tên = các từ còn lại (VD: NGUYEN | VAN AN)",
 }
 DEFAULT_OPTIONS = {"doc_function": "CN01", "doc_no": "", "doc_year": "", "sign_place": "", "sign_date": "", "signer": "",
-                   "crew_passport_type": "", "name_split": "full_in_both", "passenger_passport_type": ""}
+                   "crew_passport_type": "", "name_split": "dash_family", "passenger_passport_type": ""}
 
 GD, NOA = "GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL"
+SEC = "SHIP_SECURITY"
 
 
 def _gd_rows(offset_after_19):
-    """Rows 3..19 identical for 'General Declaration' and 'Notice ship to port'; rows after 19 differ."""
+    """Rows 3..19 identical for 'General Declaration' and 'Notice ship to port'; rows after 19 differ.
+    Port cells hold UN/LOCODE codes; B7/B8 = port of arrival, as in SGCL's filled NSW workbook."""
     rows = [("B3", "Số hồ sơ / Document's No", "opt:doc_no"), ("B4", "Năm đăng ký hồ sơ", "opt:doc_year"),
             ("B5", "Chức năng của chứng từ", "opt:doc_function"),
-            ("B6", "Các cảng trước (Last port)", "src:last_port"), ("B7", "Các cảng sẽ đến (Next port)", "src:next_port"),
-            ("B8", "Các cảng sẽ dỡ hàng", "manual"), ("B9", "Số hàng còn lại", "manual"),
+            ("B6", "Các cảng trước (mã cảng rời cuối)", "src:last_port:locode"),
+            ("B7", "Các cảng sẽ đến (mã cảng đến)", "src:port_of_arrival:locode"),
+            ("B8", "Các cảng sẽ dỡ hàng (mã cảng đến)", "src:port_of_arrival:locode"), ("B9", "Số hàng còn lại", "manual"),
             ("B10", "Mớn nước F (m)", "src:draft_fwd:num"), ("B11", "Mớn nước A (m)", "src:draft_aft:num"),
             ("B12", "Chiều cao tĩnh không (m)", "src:air_draft:num"), ("B13", "Ghi chú", "manual"),
-            ("B14", "Số bản: Bản khai hàng hóa", "manual"), ("B15", "Số bản: Bản khai dự trữ", "manual"),
-            ("B16", "Số bản: Danh sách thuyền viên", "manual"), ("B17", "Số bản: Danh sách hành khách", "manual"),
-            ("B18", "Số bản: Hành lý thuyền viên", "manual"), ("B19", "Số bản: Kiểm dịch y tế", "manual")]
+            ("B14", "Bản khai hàng hóa kèm theo (1/0)", "docs:CARGO_MANIFEST|BILL_OF_LADING"),
+            ("B15", "Bản khai dự trữ tàu kèm theo (1/0)", "docs:SHIP_STORES"),
+            ("B16", "Danh sách thuyền viên kèm theo (1/0)", "docs:CREW_LIST"),
+            ("B17", "Danh sách hành khách kèm theo (1/0)", "docs:PASSENGER_LIST"),
+            ("B18", "Bản khai hành lý thuyền viên kèm theo (1/0)", "docs:CREW_EFFECTS"),
+            ("B19", "Bản khai kiểm dịch y tế kèm theo (1/0)", "docs:HEALTH_DECLARATION")]
     return rows + offset_after_19
 
 
@@ -49,16 +56,17 @@ SHEET_HEADERS = {
         ("B20", "Yêu cầu tiếp nhận chất thải", "manual"), ("B21", "Vị trí tàu tại cảng", "src:berth"), ("B22", "Tàu lai", "manual"),
         ("B23", "Mã số giấy phép rời cảng", "manual"), ("B24", "Thời gian đến cảng", "src:eta:date"), ("B25", "Thời gian cập cảng", "manual"),
         ("B26", "Thời gian hoa tiêu lên tàu", "manual"), ("B27", "Link tra cứu GP rời cảng", "manual"), ("B28", "Mã vạch GP rời cảng", "manual"),
-        ("B29", "Dầu DO", "src:rob_do"), ("B30", "Dầu FO", "src:rob_fo"), ("B31", "Nước ngọt FW", "src:rob_fw"),
-        ("B32", "Nơi ký", "opt:sign_place")]), [GD, NOA]),
+        ("B29", "Dầu DO", "src:rob_do:num"), ("B30", "Dầu FO", "src:rob_fo:num"), ("B31", "Nước ngọt FW", "src:rob_fw:num"),
+        ("B32", "Nơi ký", "opt:sign_place"), ("B33", "Ngày ký", "opt:sign_date"), ("B34", "Người ký", "opt:signer")]), [GD, NOA]),
     "Notice ship to port": (_gd_rows([
         ("B20", "Yêu cầu tiếp nhận chất thải", "manual"), ("B21", "Vị trí tàu tại cảng", "src:berth"), ("B22", "Tàu lai", "manual"),
         ("B23", "Mã số giấy phép rời cảng", "manual"), ("B24", "Thời gian đến/rời cảng", "src:eta:date"), ("B25", "Thời gian cập cảng", "manual"),
-        ("B26", "Thời gian hoa tiêu lên tàu", "manual"), ("B27", "Dầu DO", "src:rob_do"), ("B28", "Dầu FO", "src:rob_fo"),
-        ("B29", "Nước ngọt FW", "src:rob_fw"), ("B30", "Nơi ký", "opt:sign_place"), ("B31", "Ngày ký", "opt:sign_date")]), [NOA, GD]),
+        ("B26", "Thời gian hoa tiêu lên tàu", "manual"), ("B27", "Dầu DO", "src:rob_do:num"), ("B28", "Dầu FO", "src:rob_fo:num"),
+        ("B29", "Nước ngọt FW", "src:rob_fw:num"), ("B30", "Nơi ký", "opt:sign_place"), ("B31", "Ngày ký", "opt:sign_date"),
+        ("B32", "Người ký", "opt:signer")]), [NOA, GD]),
     "ConfirmationOfArrival": ([("B3", "Số hồ sơ", "opt:doc_no"), ("B4", "Năm đăng ký", "opt:doc_year"), ("B5", "Chức năng", "opt:doc_function"),
                                ("B6", "Thời gian đến/rời (thực tế)", "manual"), ("B7", "Các yêu cầu khác", "manual"),
-                               ("B8", "Nơi ký", "opt:sign_place"), ("B9", "Ngày ký", "opt:sign_date")], []),
+                               ("B8", "Nơi ký", "opt:sign_place"), ("B9", "Ngày ký", "opt:sign_date"), ("B10", "Người ký", "opt:signer")], []),
     "Goods Declaration": ([("B3", "Số hồ sơ", "opt:doc_no"), ("B4", "Năm đăng ký", "opt:doc_year"), ("B5", "Chức năng", "opt:doc_function"),
                            ("B6", "Tổng số kiện", "derived:total_packages"), ("B7", "Loại kiện (mã)", "derived:package_kind")], []),
     "Crew list": ([("B3", "Số hồ sơ", "opt:doc_no"), ("B4", "Năm đăng ký", "opt:doc_year"), ("B5", "Chức năng", "opt:doc_function"),
@@ -74,23 +82,29 @@ SHEET_HEADERS = {
                                   ("B6", "Cảng nhận hàng (mã)", "src:port_of_loading:locode"), ("B7", "Cảng trả hàng (mã)", "src:port_of_discharge:locode"),
                                   ("B8", "Thông tin bổ sung", "manual"), ("B9", "Nơi ký", "opt:sign_place"), ("B10", "Ngày ký", "opt:sign_date"),
                                   ("B11", "Người ký", "opt:signer")], ["DG_MANIFEST", "CARGO_MANIFEST"]),
+    "Empty Container": ([("B3", "Số hồ sơ", "opt:doc_no"), ("B4", "Năm đăng ký", "opt:doc_year")], []),
+    "Declaration For Ship Security": ([("B3", "Số hồ sơ", "opt:doc_no"), ("B4", "Năm đăng ký", "opt:doc_year"),
+                                       ("B9", "Tên cơ quan cấp ISSC", "src:issc_issuer"), ("B10", "Ngày cấp ISSC", "src:issc_issue_date:date"),
+                                       ("B11", "Ngày ISSC hết hạn", "src:issc_expiry:date"), ("B12", "Cấp độ an ninh hiện tại", "src:security_level:level"),
+                                       ("B17", "Vĩ độ", "src:latitude"), ("B18", "Kinh độ", "src:longitude"), ("B19", "ETA", "src:eta:date"),
+                                       ("B20", "Nơi ký", "opt:sign_place"), ("B21", "Ngày ký", "opt:sign_date"), ("B22", "Người ký", "opt:signer")], [SEC]),
 }
-# Sheets/regions with no source document in this system: sample data is cleared, structure kept.
+# header block is only written when the matching document exists in the voyage
+ONLY_IF_DOC = {"Declaration For Ship Security": SEC, "Empty Container": "EMPTY_CONTAINER_LIST"}
+# Regions with no source document in this system: any leftover value is cleared, structure kept.
 CLEAR_ONLY = {
     "General Declaration": ["A38:C43", "A46:G51"],
     "Notice ship to port": ["A36:C41", "A44:G46"],
     "ConfirmationOfArrival": ["A13:F18"],
-    "List of House bill of lading": ["A4:X4", "B7:G9", "A12:X12", "B15:G17"],
+    "List of House bill of lading": ["A4:X4", "B7:G7"],
     "Cargo manifest": ["B3:B9", "A12:K15"],
-    "Declaration For Ship Security": ["B3:B4", "B6:B22", "A25:E25"],
+    "Declaration For Ship Security": ["B6:B8", "B13:B16"],
     "Declaration For Plant": ["B3:B4", "B6:B15"],
     "Declaration For Animal": ["B3:B4", "B6:B12"],
     "Declaration For Health": ["B3:B4", "B6:B22", "B25:B42", "A46:G49", "A52:N54"],
-    "Empty Container": ["B3:B4", "A8:D11"],
-    "Arms And Explosive Materials": ["B3:B4", "A8:A8", "C8:H8"],
+    "Arms And Explosive Materials": ["A8:A8", "C8:H8"],
     "Declaration of Stowaway": ["B4:B5", "B7:B10", "A13:AS13"],
     "Add User": ["A5:Q6"],
-    "InlandAttachmentList": ["A5:A7", "C5:H7"],
 }
 DOC_FUNCTION_CELLS = {"Declaration For Ship Security": "B5", "Declaration For Plant": "B5", "Declaration For Animal": "B5",
                       "Declaration For Health": "B5", "Empty Container": "B5", "Arms And Explosive Materials": "B5",
@@ -98,11 +112,14 @@ DOC_FUNCTION_CELLS = {"Declaration For Ship Security": "B5", "Declaration For Pl
 
 TABLES = {
     "Crew list": dict(first=11, old_last=11, cols="A:K", source="crew"),
-    "Crew's Effects Declaration": dict(first=11, old_last=15, cols="A:D", source="effects", max_row=44),
-    "Ship's store declaration": dict(first=13, old_last=17, cols="A:E", source="store"),
+    "Crew's Effects Declaration": dict(first=11, old_last=11, cols="A:D", source="effects"),
+    "Ship's store declaration": dict(first=13, old_last=13, cols="A:E", source="store"),
     "Passenger list": dict(first=11, old_last=11, cols="A:M", source="passenger"),
-    "Goods Declaration": dict(first=10, old_last=13, cols="A:W", source="cargo"),
+    "Goods Declaration": dict(first=10, old_last=10, cols="A:W", source="cargo"),
     "Dangerous goods manifest": dict(first=14, old_last=14, cols="A:P", source="dg"),
+    "Empty Container": dict(first=8, old_last=11, cols="A:D", source="empty_container"),  # rows 8-11 carry the port-name lookup formula
+    # NSW form: last 10 port calls (rows 25-34)
+    "Declaration For Ship Security": dict(first=25, old_last=25, cols="A:E", source="port_calls", max_row=34),
 }
 
 
@@ -133,7 +150,12 @@ def _num(v):
 class Data:
     def __init__(self, conn, voyage_id):
         self.docs = {d["id"]: d for d in db.rows(conn, "SELECT * FROM documents WHERE voyage_id=?", (voyage_id,))}
-        self.fields = db.rows(conn, "SELECT * FROM extracted_fields WHERE voyage_id=? ORDER BY record_index, id", (voyage_id,))
+        # documents suspected to belong to another voyage are kept out of the declaration until staff confirm / move them
+        self.suspect = {r["doc1_id"] for r in db.rows(conn, "SELECT doc1_id FROM crosscheck_results WHERE voyage_id=? AND status='WRONG_VOYAGE' "
+                                                          "AND acknowledged=0 AND doc1_id IS NOT NULL", (voyage_id,))}
+        self.suspect -= {d for d, x in self.docs.items() if x.get("voyage_confirmed")}
+        self.fields = [f for f in db.rows(conn, "SELECT * FROM extracted_fields WHERE voyage_id=? AND status!='EXCLUDED' ORDER BY record_index, id",
+                                          (voyage_id,)) if f["document_id"] not in self.suspect]
         self.opts = _opts(conn, voyage_id)
 
     def dtype(self, f):
@@ -194,7 +216,10 @@ def build_plan(conn, voyage_id):
     plan = Plan()
     o = data.opts
     # ------------------------------------------------ header cells
+    present = {d["doc_type"] for d in data.docs.values()}
     for sheet, (rows, types) in SHEET_HEADERS.items():
+        if sheet in ONLY_IF_DOC and ONLY_IF_DOC[sheet] not in present:
+            continue
         for ref, label, spec in rows:
             manual = o.get(f"cell:{sheet}!{ref}")
             if manual:
@@ -207,6 +232,11 @@ def build_plan(conn, voyage_id):
                     _set(plan, sheet, ref, v, label, [{"doc": "Tùy chọn xuất file", "status": "CONFIRMED"}], "option")
                 else:
                     plan.empty.append(f"{sheet}!{ref} - {label}")
+            elif kind == "docs":
+                types_ = rest[0].split("|")
+                v = "1" if any(t in present for t in types_) else "0"
+                _set(plan, sheet, ref, v, label, [{"doc": "Có chứng từ tương ứng trong bộ hồ sơ" if v == "1" else "Không có chứng từ tương ứng",
+                                                  "status": "DERIVED"}], "derived")
             elif kind == "manual":
                 plan.empty.append(f"{sheet}!{ref} - {label} (không có trong chứng từ - nhập tay nếu cần)")
             elif kind == "src":
@@ -223,7 +253,13 @@ def build_plan(conn, voyage_id):
                     elif tr == "date":
                         v = N.parse_date(v)[0] or v
                     elif tr == "locode":
-                        v = data.code("locode", v)[0]
+                        v, ok = data.code("locode", v)
+                        if not ok:
+                            plan.warnings.append(f"{sheet}!{ref} ({label}): '{v}' chưa có mã cảng UN/LOCODE - đã ghi nguyên văn, chọn mã ở mục Ánh xạ mã.")
+                            plan.unmapped_codes = getattr(plan, "unmapped_codes", set()) | {("locode", v)}
+                    elif tr == "level":
+                        m = re.search(r"[123]", v or "")
+                        v = m.group(0) if m else v
                     vals.setdefault(N.norm_text(v), (v, f))
                 if len(vals) > 1:
                     plan.blockers.append(f"{sheet}!{ref} ({label}): các chứng từ ghi khác nhau: " +
@@ -241,6 +277,9 @@ def build_plan(conn, voyage_id):
     _passengers(plan, data)
     _goods(plan, data)
     _dg(plan, data)
+    _dg_transporter_note(plan)
+    _empty_containers(plan, data)
+    _port_calls(plan, data)
     # derived header values for Goods Declaration
     rows = plan.tables.get("Goods Declaration", [])
     if rows:
@@ -255,7 +294,7 @@ def build_plan(conn, voyage_id):
     for sheet, cell in DOC_FUNCTION_CELLS.items():
         if cell and o.get("doc_function"):
             _set(plan, sheet, cell, o["doc_function"], "Chức năng của chứng từ", [{"doc": "Tùy chọn xuất file", "status": "CONFIRMED"}], "option")
-    plan.warnings.append("Sheet 'List of House bill of lading': hệ thống chưa phân biệt House B/L / Master B/L → chỉ xóa dữ liệu mẫu, không điền.")
+    plan.warnings.append("Sheet 'List of House bill of lading': chưa điền tự động (cần quy ước House/Master B/L) → nhập trong Excel nếu có hàng gom.")
     return plan, data
 
 
@@ -280,6 +319,8 @@ def _names(rec, opt):
     parts = name.split()
     if opt == "last_word_given" and len(parts) > 1:
         return " ".join(parts[:-1]), parts[-1], [full]
+    if opt == "dash_family" or opt not in NAME_SPLITS:
+        return "-", name, [full]
     if opt == "first_word_family" and len(parts) > 1:
         return parts[0], " ".join(parts[1:]), [full]
     return name, name, [full]
@@ -399,11 +440,12 @@ def _dg(plan, data):
         _row(plan, sheet, {
             "A": _v(rec, "bl_no"), "B": _v(rec, "marks"), "C": _num(_v(rec, "packages")) if _v(rec, "packages") else None,
             "D": _coded(plan, data, sheet, "package", _v(rec, "package_kind"), "loại kiện") if _v(rec, "package_kind") else None,
-            "E": _v(rec, "proper_shipping_name"), "F": _v(rec, "imdg_class"), "G": re.sub(r"\D", "", _v(rec, "un_no") or "") or None,
+            # new NSW template: column E = "Cty vận chuyển / Transporter's name" (no proper-shipping-name column any more)
+            "E": _v(rec, "transporter"), "F": _v(rec, "imdg_class"), "G": re.sub(r"\D", "", _v(rec, "un_no") or "") or None,
             "H": _v(rec, "packing_group"), "I": _v(rec, "subsidiary_risk"), "J": _v(rec, "flash_point"), "K": _v(rec, "marine_pollutant"),
             "L": _num(_v(rec, "gross_weight")) if _v(rec, "gross_weight") else None, "M": _v(rec, "stowage"),
             "N": _v(rec, "container_no"), "O": _v(rec, "seal_no"),
-        }, [rec.get(k) for k in ("bl_no", "marks", "packages", "package_kind", "proper_shipping_name", "imdg_class", "un_no", "packing_group",
+        }, [rec.get(k) for k in ("bl_no", "marks", "packages", "package_kind", "transporter", "imdg_class", "un_no", "packing_group",
                                  "subsidiary_risk", "flash_point", "marine_pollutant", "gross_weight", "stowage", "container_no", "seal_no")], data)
 
 
@@ -423,10 +465,24 @@ def readiness(conn, voyage_id):
         for r in db.rows(conn, "SELECT * FROM crosscheck_results WHERE voyage_id=? AND blocking=1", (voyage_id,)):
             blockers.append(f"[{r['status']}] {r['message']}")
     unconf = [f for f in data.fields if f["id"] in plan.used_fields and f["status"] != "CONFIRMED"]
+    for did in data.suspect:
+        plan.warnings.append(f"Chứng từ '{data.docs[did]['original_name']}' nghi thuộc chuyến khác - dữ liệu của nó KHÔNG được đưa vào file Excel "
+                             "cho tới khi nhân viên xác nhận đúng hồ sơ.")
+    # extracted data that has no cell in the NSW template (kept for cross-check / reference)
+    unmapped = defaultdict(lambda: {"count": 0, "docs": set()})
+    for f in data.fields:
+        if f["id"] in plan.used_fields or f["field_key"] in ("seq",):
+            continue
+        u = unmapped[f["field_key"]]
+        u["count"] += 1
+        u["label"] = f["field_label"] or f["field_key"]
+        u["docs"].add(data.docs[f["document_id"]]["original_name"] if f["document_id"] in data.docs else "Nhập tay")
     if unconf:
         blockers.append(f"Còn {len(unconf)} trường dữ liệu sẽ xuất ra Excel chưa được nhân viên xác nhận.")
     return {"ready": not blockers, "blockers": blockers, "warnings": plan.warnings, "empty": plan.empty,
-            "unconfirmed_count": len(unconf), "plan": plan_view(plan)}
+            "unconfirmed_count": len(unconf), "plan": plan_view(plan),
+            "unmapped_fields": sorted(({"field": k, "label": v["label"], "count": v["count"], "docs": sorted(v["docs"])[:5]}
+                                       for k, v in unmapped.items()), key=lambda x: x["label"])}
 
 
 def plan_view(plan):
@@ -569,3 +625,35 @@ def verify(template, out_path, written):
             except Exception as e:
                 add("Mở được bằng LibreOffice (kiểm tra độc lập)", False, str(e))
     return checks
+
+
+def _dg_transporter_note(plan):
+    if plan.tables.get("Dangerous goods manifest") and not any(r.get("E") for r in plan.tables["Dangerous goods manifest"]):
+        plan.warnings.append("Dangerous goods manifest cột E 'Cty vận chuyển' (bắt buộc): chứng từ không ghi → để trống, cần bổ sung.")
+
+
+def _empty_containers(plan, data):
+    sheet = "Empty Container"
+    for rec in data.records("empty_container"):
+        ct = _v(rec, "container_type")
+        valid = N.CODES["container_types"] or ["Container 20", "Container 40", "Container 45", "Other"]
+        _row(plan, sheet, {"A": _v(rec, "bl_no"), "B": _v(rec, "container_no"), "C": ct if ct in valid else None,
+                           "D": _coded(plan, data, sheet, "locode", _v(rec, "pod"), "cảng dỡ hàng")},
+             [rec.get(k) for k in ("bl_no", "container_no", "container_type", "pod")], data)
+        if not ct or ct not in valid:
+            plan.warnings.append(f"Empty Container: container {_v(rec, 'container_no')} chưa có loại cont 20/40/45 → chọn tại Kiểm tra và xác nhận.")
+
+
+def _port_calls(plan, data):
+    """Declaration For Ship Security rows 25-34: the last 10 port calls (most recent kept when the document lists more)."""
+    sheet = "Declaration For Ship Security"
+    recs = data.records("port_calls")
+    if len(recs) > 10:
+        plan.warnings.append(f"Ship Security: chứng từ có {len(recs)} cảng ghé, mẫu NSW chỉ có 10 dòng → ghi 10 dòng cuối danh sách, kiểm tra thứ tự.")
+        recs = recs[-10:]
+    for rec in recs:
+        lvl = re.search(r"[123]", _v(rec, "security_level") or "")
+        code = _coded(plan, data, sheet, "locode", _v(rec, "port_code") or _v(rec, "port_name"), "mã cảng")
+        _row(plan, sheet, {"A": code, "B": _v(rec, "port_name"), "C": _v(rec, "arrival"), "D": _v(rec, "departure"),
+                           "E": lvl.group(0) if lvl else None},
+             [rec.get(k) for k in ("port_code", "port_name", "arrival", "departure", "security_level")], data)

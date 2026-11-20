@@ -134,6 +134,25 @@ class Sheet:
         self.dirty = True
         return True
 
+    def wipe(self, ref):
+        """Remove value AND formula (used only when building a clean template from a filled workbook)."""
+        c = self.cell(ref)
+        if c is None:
+            return False
+        for child in list(c):
+            c.remove(child)
+        c.attrib.pop("t", None)
+        self.dirty = True
+        return True
+
+    def wipe_range(self, rng):
+        a, b = rng.split(":") if ":" in rng else (rng, rng)
+        ca, ra = split_ref(a)
+        cb, rb = split_ref(b)
+        for r in range(ra, rb + 1):
+            for cn in range(col2num(ca), col2num(cb) + 1):
+                self.wipe(f"{num2col(cn)}{r}")
+
     def clear(self, ref):
         c = self.cell(ref)
         if c is None or c.find(Q("f")) is not None:
@@ -308,6 +327,35 @@ class Book:
         if t == "s":
             return self.shared[int(v.text)]
         return v.text
+
+    def compact_shared_strings(self):
+        """Drop shared strings no longer referenced by any sheet (so cleared data does not stay inside the file)."""
+        if "xl/sharedStrings.xml" not in self.parts:
+            return
+        for name in self.sheet_names:
+            self.sheet(name)
+        used = []
+        index = {}
+        for sh in self._sheets.values():
+            for c in sh.tree.iter(Q("c")):
+                if c.get("t") == "s":
+                    v = c.find(Q("v"))
+                    old_i = int(v.text)
+                    if old_i not in index:
+                        index[old_i] = len(used)
+                        used.append(old_i)
+                    v.text = str(index[old_i])
+                    sh.dirty = True
+        sst = etree.fromstring(self.parts["xl/sharedStrings.xml"])
+        items = sst.findall(Q("si"))
+        for si in items:
+            sst.remove(si)
+        for old_i in used:
+            sst.append(items[old_i])
+        sst.set("count", str(len(used)))
+        sst.set("uniqueCount", str(len(used)))
+        self.parts["xl/sharedStrings.xml"] = etree.tostring(sst, xml_declaration=True, encoding="UTF-8", standalone=True)
+        self.shared = [self.shared[i] for i in used]
 
     def save(self, out_path):
         # formulas were added/removed -> drop calcChain (Excel rebuilds it) and force recalculation

@@ -178,6 +178,13 @@ def init_db():
     os.makedirs(EXPORT_DIR, exist_ok=True)
     with tx() as c:
         c.executescript(SCHEMA)
+        # additive migrations for databases created by earlier versions
+        for table, col, ddl in (("documents", "voyage_confirmed", "INTEGER NOT NULL DEFAULT 0"),
+                                ("documents", "voyage_confirmed_by", "TEXT"),
+                                ("extracted_fields", "data_type", "TEXT"),
+                                ("extracted_fields", "unit", "TEXT")):
+            if col not in [r[1] for r in c.execute(f"PRAGMA table_info({table})")]:
+                c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
         if not c.execute("SELECT 1 FROM users").fetchone():
             # First start: passwords come from environment variables; otherwise random ones are
             # generated, printed in the server log and saved to <data>/initial_credentials.txt.

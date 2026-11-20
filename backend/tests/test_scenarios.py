@@ -115,10 +115,11 @@ def test_scenario1_consistent_set_exports():
     assert wb["Passenger list"]["A11"].value is None  # sample row cleared, no passengers
     eff = wb["Crew's Effects Declaration"]
     assert eff["A11"].value and eff["B11"].value and eff["C11"].value == "CAP"
-    assert eff["C45"].value == "NameOfShip"  # template content below the list kept
-    assert wb["General Declaration"]["B33"].value.startswith("=IF(")  # formula kept
+    assert eff["A11"].value == "-"  # SGCL convention from the filled NSW file: Họ = "-", Tên = full name
+    assert wb["General Declaration"]["B33"].value == "19/11/2026" and wb["General Declaration"]["B34"].value == "Đại lý/ShipAgency"
+    assert wb["General Declaration"]["B16"].value == "1" and wb["General Declaration"]["B17"].value == "0"  # attached declarations 1/0
     assert wb["Cargo manifest"].sheet_state == "hidden"
-    assert wb.sheetnames[0] == "Declaration list" and len(wb.sheetnames) == 21
+    assert wb.sheetnames[0] == "Declaration list" and len(wb.sheetnames) == 20
     globals()["VID1"] = vid
 
 
@@ -157,7 +158,7 @@ def test_scenario2_discrepancies_detected():
 
 def test_scenario3_scanned_missing():
     vid, docs = sample(3)
-    assert all("ocr" in (d["extraction_method"] or "") for d in docs if d["status"] == "EXTRACTED")
+    assert all("ocr" in (d["extraction_method"] or "") for d in docs if d["status"] == "EXTRACTED" and d["doc_type"] != "OTHER")
     res = results(vid)
     fields = client.get(f"/api/voyages/{vid}/fields", headers=H).json()["fields"]
     gd = [f for f in fields if f["doc_type"] == "GENERAL_DECLARATION"]
@@ -178,10 +179,107 @@ def test_voyages_isolated():
     assert client.get(f"/api/voyages/{b['id']}/fields", headers=H).json()["fields"] == []
     assert client.get(f"/api/voyages/{b['id']}/documents", headers=H).json()["documents"] == []
     rd = client.get(f"/api/voyages/{b['id']}/export/readiness", headers=H).json()
-    assert not rd["plan"]["tables"] and all(c["kind"] == "option" for c in rd["plan"]["cells"])
+    assert not rd["plan"]["tables"]
+    # only form options and "attached declaration = 0" flags derived from this (empty) voyage - nothing from other voyages
+    assert all(c["kind"] == "option" or (c["kind"] == "derived" and c["value"] == "0") for c in rd["plan"]["cells"])
 
 
 def test_login_lockout():
     for _ in range(5):
         assert client.post("/api/login", json={"username": "admin", "password": "wrong"}).status_code == 401
     assert client.post("/api/login", json={"username": "admin", "password": "admin123"}).status_code == 429
+
+
+def test_scenario4_large_lists_neutral_filenames():
+    vid, docs = sample(4)
+    assert len(docs) == 5
+    assert sorted(d["doc_type"] for d in docs) == sorted(["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "TONNAGE_CERTIFICATE", "CREW_LIST", "CARGO_MANIFEST"])
+    fields = client.get(f"/api/voyages/{vid}/fields", headers=H).json()["fields"]
+    assert len({f["record_key"] for f in fields if f["section"] == "crew"}) == 35
+    assert len({f["record_key"] for f in fields if f["section"] == "cargo"}) == 50
+    assert all(f["data_type"] for f in fields)  # data type stored with every value
+    assert any(f["data_type"] == "date" for f in fields) and any(f["data_type"] == "identifier" for f in fields)
+    res = results(vid)
+    assert not [r for r in res if r["blocking"]], [r["message"] for r in res if r["blocking"]]
+    assert any(r["status"] == "PASSED" and r["field_key"] == "crew_count" for r in res)
+    confirm_all(vid)
+    results(vid)
+    r = client.post(f"/api/voyages/{vid}/export", json={}, headers=H)
+    assert r.status_code == 200, r.text
+    rep = r.json()["report"]
+    assert not [c for c in rep["checks"] if not c["ok"]], rep["checks"]
+    assert rep["rows"]["Crew list"] == 35 and rep["rows"]["Goods Declaration"] == 50
+    # exclude a record -> it leaves the declaration and the crew count no longer matches
+    crew1 = next(f for f in fields if f["section"] == "crew" and f["record_key"] == "crew:1")
+    ex = client.post(f"/api/voyages/{vid}/records/exclude", headers=H, json={"document_id": crew1["document_id"], "section": "crew",
+                                                                         "record_key": "crew:1", "exclude": True, "reason": "test"})
+    assert ex.status_code == 200
+    res = results(vid)
+    assert any(r["status"] == "MISMATCH" and r["field_key"] == "crew_count" for r in res)
+    rd = client.get(f"/api/voyages/{vid}/export/readiness", headers=H).json()
+    assert len(rd["plan"]["tables"]["Crew list"]["rows"]) == 34
+    client.post(f"/api/voyages/{vid}/records/exclude", headers=H, json={"document_id": crew1["document_id"], "section": "crew",
+                                                                    "record_key": "crew:1", "exclude": False})
+    assert len(client.get(f"/api/voyages/{vid}/export/readiness", headers=H).json()["plan"]["tables"]["Crew list"]["rows"]) == 35
+
+
+def test_scenario2_containers_security_wrong_voyage_actions():
+    vid, docs = sample(2)
+    types = {d["original_name"]: d["doc_type"] for d in docs}
+    assert types["11_doc_scan_0457.pdf"] == "SHIP_SECURITY" and types["10_empty_containers.xlsx"] == "EMPTY_CONTAINER_LIST"
+    res = results(vid)
+    assert any(r["group_name"].startswith("5") and r["status"] == "MISMATCH" and "RỖNG" in r["message"] for r in res)
+    assert any(r["check_key"].startswith("mixed|") for r in res)  # several vessels in one set
+    other = next(d for d in docs if "OTHER_VESSEL" in d["original_name"])
+    # data of the suspect document is kept out of the declaration
+    rd = client.get(f"/api/voyages/{vid}/export/readiness", headers=H).json()
+    assert other["original_name"] not in str(rd["plan"]["tables"]["Goods Declaration"]["sources"])
+    assert any("nghi thuộc chuyến khác" in w for w in rd["warnings"])
+    # move it to the voyage it belongs to
+    target = client.post("/api/voyages", json={"vessel_name": "SAMPLE CUU LONG BREEZE", "voyage_no": "118W-TEST"}, headers=H).json()
+    mv = client.post(f"/api/documents/{other['id']}/move", json={"voyage_id": target["id"], "reason": "test"}, headers=H)
+    assert mv.status_code == 200, mv.text
+    res = client.get(f"/api/voyages/{vid}/crosscheck", headers=H).json()["results"]
+    assert not any(r["doc1_id"] == other["id"] for r in res)
+    assert client.get(f"/api/voyages/{target['id']}/documents", headers=H).json()["documents"][0]["id"] == other["id"]
+    # security declaration -> NSW sheet (port calls + ISSC) when exported by supervisor override
+    confirm_all(vid)
+    results(vid)
+    r = client.post(f"/api/voyages/{vid}/export", json={"override_username": "admin", "override_password": "admin123", "override_reason": "test"}, headers=H)
+    assert r.status_code == 200, r.text
+    import openpyxl, warnings
+    p = os.path.join(tempfile.mkdtemp(), "o.xlsx")
+    open(p, "wb").write(client.get(f"/api/exports/{r.json()['id']}/download?token={H['Authorization'].split()[1]}").content)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        wb = openpyxl.load_workbook(p)
+    sec = wb["Declaration For Ship Security"]
+    assert sec["B9"].value == "PANAMA MARITIME AUTHORITY" and sec["B11"].value == "11/03/2029" and sec["B12"].value == "1"
+    assert sec["A25"].value == "THBKK" and sec["B29"].value == "SINGAPORE" and sec["A30"].value is None
+    ec = wb["Empty Container"]
+    assert ec["B8"].value and ec["C8"].value == "Container 20" and ec["D8"].value == "VNCLI"
+
+
+def test_unknown_document_and_confirm_voyage():
+    vid, docs = sample(3)
+    unk = next(d for d in docs if d["original_name"] == "05_Document01.pdf")
+    assert unk["doc_type"] == "OTHER" and unk["status"] == "EXTRACTED"  # kept, not dropped, not an error
+    steps = {s["key"]: s for s in client.get(f"/api/voyages/{vid}", headers=H).json()["progress"]["steps"]}
+    assert not steps["classify"]["done"] and "Unknown" in steps["classify"]["why"]
+    client.put(f"/api/documents/{unk['id']}/type", json={"doc_type": "OTHER", "reprocess": False}, headers=H)
+    steps = {s["key"]: s for s in client.get(f"/api/voyages/{vid}", headers=H).json()["progress"]["steps"]}
+    assert steps["classify"]["done"]
+    assert client.post(f"/api/documents/{unk['id']}/confirm-voyage", json={"confirmed": True, "reason": ""}, headers=H).status_code == 400
+    assert client.post(f"/api/documents/{unk['id']}/confirm-voyage", json={"confirmed": True, "reason": "checked"}, headers=H).status_code == 200
+
+
+def test_duplicate_voyage_warning():
+    body = {"vessel_name": "DUP TEST", "imo": "9395044", "voyage_no": "77A", "port_of_arrival": "VNCLI", "eta": "01/12/2026 08:00"}
+    a = client.post("/api/voyages", json=body, headers=H)
+    assert a.status_code == 200
+    b = client.post("/api/voyages", json=body, headers=H)
+    assert b.status_code == 409 and b.json()["detail"]["duplicate_id"] == a.json()["id"]
+    c = client.post("/api/voyages", json={**body, "allow_duplicate": True}, headers=H)
+    assert c.status_code == 200 and c.json()["voyage_code"] != a.json()["voyage_code"]
+    d = client.post("/api/voyages", json={**body, "voyage_no": "78A"}, headers=H)  # another voyage of the same ship
+    assert d.status_code == 200

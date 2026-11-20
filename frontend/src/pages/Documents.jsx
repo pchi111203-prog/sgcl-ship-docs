@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, fileUrl, fmtSize } from '../api'
-import { Badge, Conf, DOC_STATUS, Modal, Spinner, useToast, useVoyage, VoyageHeader } from '../components'
+import { Badge, Conf, DOC_STATUS, FIELD_STATUS, Modal, Spinner, useToast, useVoyage, VoyageHeader } from '../components'
 
 const ACCEPT = '.pdf,.jpg,.jpeg,.png,.tif,.tiff,.bmp,.docx,.xlsx,.xlsm,.xls,.csv,.txt'
 
@@ -13,6 +13,7 @@ export default function Documents() {
   const [uploading, setUploading] = useState(false)
   const [view, setView] = useState(null)
   const [fill, setFill] = useState(false)
+  const [moving, setMoving] = useState(null)
   const input = useRef()
   const toast = useToast()
 
@@ -55,6 +56,16 @@ export default function Documents() {
     if (!window.confirm(msg)) return
     await api(`/api/documents/${d.id}/process`, { method: 'POST' }); load()
   }
+  const extractAll = async () => {
+    try { const r = await api(`/api/voyages/${id}/process-pending`, { method: 'POST' }); toast(r.queued ? `Đang trích xuất ${r.queued} chứng từ chưa xử lý / lỗi` : 'Không còn chứng từ nào chờ trích xuất'); load() }
+    catch (e) { toast(e.message, 'err') }
+  }
+  const confirmBelongs = async (d) => {
+    const reason = window.prompt(`Xác nhận "${d.original_name}" thuộc đúng chuyến tàu này?\nGhi lý do (VD: đã kiểm tra bản gốc, B/L ghi tên tàu cũ):`)
+    if (!reason) return
+    try { await api(`/api/documents/${d.id}/confirm-voyage`, { method: 'POST', body: { confirmed: true, reason } }); toast('Đã xác nhận chứng từ đúng hồ sơ'); load(); reload() }
+    catch (e) { toast(e.message, 'err') }
+  }
   const replace = (d) => {
     const el = document.createElement('input')
     el.type = 'file'; el.accept = ACCEPT
@@ -75,7 +86,7 @@ export default function Documents() {
           {uploading ? <><Spinner /> Đang tải lên…</> : <>
             <div style={{ fontSize: 15 }}><b>Kéo thả chứng từ vào đây</b> hoặc bấm để chọn nhiều file</div>
             <div className="small muted" style={{ marginTop: 6 }}>PDF (văn bản hoặc scan), JPG/PNG/TIFF, DOCX, XLSX/XLS, CSV · tối đa 50MB/file · có thể tải nhiều chứng từ cùng loại</div>
-            <div className="small muted">General Declaration · Cargo Manifest · B/L · Crew List · Passenger List · DG Manifest · Notice of Arrival · Tonnage Certificate · Crew's Effects · Ship's Stores · khác</div>
+            <div className="small muted">General Declaration · Notice of Arrival · Tonnage Certificate · Cargo Manifest · B/L · Crew List · Passenger List · DG Manifest · Crew's Effects · Ship's Stores · Ship Security · Health · Plant · Animal · Empty Container · chứng từ khác (Unknown)</div>
           </>}
           <input ref={input} type="file" multiple accept={ACCEPT} hidden onChange={(e) => { upload([...e.target.files]); e.target.value = '' }} />
         </div>
@@ -85,6 +96,8 @@ export default function Documents() {
         <div className="card-head">
           <h2>Chứng từ của chuyến ({docs?.length || 0})</h2>
           <div className="row">{busy && <span className="small muted"><Spinner /> Đang xử lý…</span>}
+            <button className="btn" disabled={busy || !docs?.some((x) => x.status === 'UPLOADED' || x.status === 'ERROR')} onClick={extractAll}
+              title="Trích xuất các chứng từ chưa xử lý hoặc bị lỗi (không đụng tới chứng từ đã trích xuất)">Trích xuất tất cả</button>
             <button className="btn" disabled={busy || !docs?.length} onClick={() => setFill(true)}>Điền hồ sơ chuyến từ chứng từ…</button>
             <Link className="btn primary" to={`/voyages/${id}/crosscheck`}>Tiếp: Đối chiếu dữ liệu →</Link></div>
         </div>
@@ -108,6 +121,8 @@ export default function Documents() {
                     </div>
                   </td>
                   <td><Badge map={DOC_STATUS} value={d.status} />{d.status === 'PROCESSING' && <> <Spinner /></>}
+                    {d.suspect > 0 && !d.voyage_confirmed && <div><span className="badge b-red" style={{ marginTop: 4 }} title="Tên tàu / IMO / số chuyến khác hồ sơ - dữ liệu chưa đưa vào Excel">Nghi sai hồ sơ</span></div>}
+                    {d.voyage_confirmed ? <div><span className="badge b-green" style={{ marginTop: 4 }} title={`Xác nhận bởi ${d.voyage_confirmed_by}`}>Đã xác nhận đúng hồ sơ</span></div> : null}
                     {d.error && <div className="small" style={{ color: 'var(--red)', maxWidth: 260 }}>{d.error}</div>}</td>
                   <td className="small">{d.page_count ?? '—'} trang<br /><span className="muted">{d.extraction_method || ''}</span>
                     {d.avg_confidence != null && <> <Conf value={d.avg_confidence} method={d.extraction_method} /></>}</td>
@@ -117,6 +132,10 @@ export default function Documents() {
                     <button className="btn sm" onClick={() => reprocess(d)} disabled={d.status === 'PROCESSING'} title="Đọc lại file từ đầu (dữ liệu đã sửa/xác nhận của file này sẽ bị thay thế)">Xử lý lại</button>{' '}
                     <button className="btn sm" onClick={() => replace(d)}>Thay file</button>{' '}
                     <button className="btn sm danger" onClick={() => del(d)}>Xóa</button>
+                    {(d.suspect > 0 || d.status === 'EXTRACTED') && <div className="row" style={{ gap: 4, marginTop: 4, justifyContent: 'flex-end' }}>
+                      {d.suspect > 0 && !d.voyage_confirmed && <button className="btn sm" onClick={() => confirmBelongs(d)}>Xác nhận đúng hồ sơ</button>}
+                      <button className="btn sm ghost" onClick={() => setMoving(d)}>Chuyển sang chuyến khác…</button>
+                    </div>}
                   </td>
                 </tr>
               ))}
@@ -126,6 +145,7 @@ export default function Documents() {
       </div>
       <div className="alert blue">Hệ thống nhận diện loại chứng từ theo <b>nội dung</b> (tiêu đề, từ khóa), không theo tên file. Nếu nhận diện sai, chọn lại loại ở cột “Loại chứng từ” – chứng từ sẽ được trích xuất lại theo loại mới.
         OCR (Tesseract) được dùng cho trang scan/ảnh; độ chính xác phụ thuộc chất lượng bản scan nên các trường có độ tin cậy thấp sẽ được đánh dấu để kiểm tra.</div>
+      {moving && <MoveDocument doc={moving} currentId={id} onClose={() => setMoving(null)} onDone={() => { setMoving(null); load(); reload() }} />}
       {fill && <ProfileFill voyage={voyage} onClose={() => setFill(false)} onDone={() => { setFill(false); reload() }} />}
       {view && <DocViewer doc={view} onClose={() => setView(null)} voyageId={id} />}
     </>
@@ -148,9 +168,11 @@ function DocViewer({ doc, onClose, voyageId }) {
       </div>
       {tab === 'fields' && (!fields ? <Spinner /> : fields.length === 0 ? <div className="empty">Không có trường dữ liệu nào được trích xuất.</div> : (
         <div className="scroll"><table className="t">
-          <thead><tr><th>Nhóm</th><th>Bản ghi</th><th>Trường</th><th>Giá trị gốc</th><th>Trang</th><th>Tin cậy</th></tr></thead>
-          <tbody>{fields.map((f) => <tr key={f.id}><td className="small">{f.section}</td><td className="small mono">{f.record_key}</td><td>{f.field_label}</td>
-            <td className="wrap-any">{f.original_value}</td><td>{f.page_no}</td><td><Conf value={f.confidence} method={f.method} /></td></tr>)}</tbody>
+          <thead><tr><th>Nhóm</th><th>Bản ghi</th><th>Trường</th><th>Văn bản gốc</th><th>Giá trị chuẩn hóa</th><th>Kiểu</th><th>Đơn vị</th><th>Trang</th><th>Tin cậy</th><th>Trạng thái</th></tr></thead>
+          <tbody>{fields.map((f) => <tr key={f.id} style={f.status === 'EXCLUDED' ? { opacity: 0.5 } : null}><td className="small">{f.section}</td><td className="small mono">{f.record_key}</td><td>{f.field_label}</td>
+            <td className="wrap-any">{f.original_value}</td><td className="wrap-any">{f.value !== f.original_value ? f.value : <span className="faint">=</span>}</td>
+            <td className="small">{f.data_type || ''}</td><td className="small">{f.unit || ''}</td><td>{f.page_no}</td>
+            <td><Conf value={f.confidence} method={f.method} /></td><td><Badge map={FIELD_STATUS} value={f.status} /></td></tr>)}</tbody>
         </table></div>))}
       {tab === 'text' && (!pages ? <Spinner /> : pages.map((p) => (
         <div key={p.page_no} style={{ marginBottom: 12 }}>
@@ -168,12 +190,12 @@ function ProfileFill({ voyage, onClose, onDone }) {
   useEffect(() => {
     api(`/api/voyages/${voyage.id}/profile-suggestions`).then((r) => {
       setRows(r)
-      setPick(Object.fromEntries(r.filter((x) => x.value && !x.current).map((x) => [x.key, true])))
+      setPick(Object.fromEntries(r.filter((x) => x.applicable && x.value && !x.current).map((x) => [x.key, true])))
     })
   }, [voyage.id])
   const apply = async () => {
     const body = { ...voyage }
-    for (const r of rows) if (pick[r.key] && r.value) body[r.key] = r.value
+    for (const r of rows) if (pick[r.key] && r.value && r.applicable) body[r.key] = r.value
     try { await api(`/api/voyages/${voyage.id}`, { method: 'PUT', body }); toast('Đã cập nhật hồ sơ chuyến tàu'); onDone() } catch (e) { toast(e.message, 'err') }
   }
   return (
@@ -181,11 +203,35 @@ function ProfileFill({ voyage, onClose, onDone }) {
       <p className="small muted" style={{ marginTop: 0 }}>Đề xuất lấy từ General Declaration / Notice of Arrival / Tonnage Certificate của chính chuyến này. Chỉ đề xuất khi các chứng từ ghi giống nhau; trường mâu thuẫn không được tự chọn.</p>
       {!rows ? <Spinner /> : <table className="t"><thead><tr><th /><th>Trường</th><th>Hiện tại</th><th>Đề xuất</th><th>Nguồn</th></tr></thead><tbody>
         {rows.map((r) => <tr key={r.key}>
-          <td><input type="checkbox" style={{ width: 'auto' }} disabled={!r.value} checked={!!pick[r.key]} onChange={(e) => setPick({ ...pick, [r.key]: e.target.checked })} /></td>
+          <td><input type="checkbox" style={{ width: 'auto' }} disabled={!r.value || !r.applicable} checked={!!pick[r.key]} onChange={(e) => setPick({ ...pick, [r.key]: e.target.checked })} /></td>
           <td>{r.label}</td><td className="small">{r.current || <span className="faint">—</span>}</td>
           <td>{r.conflict ? <span className="badge b-red">Mâu thuẫn – xem Đối chiếu</span> : r.value || <span className="badge b-gray">Not Available in Source</span>}</td>
           <td className="small muted">{r.sources.map((s) => `${s.original_name} tr.${s.page_no}`).join(', ')}</td></tr>)}
       </tbody></table>}
+    </Modal>
+  )
+}
+
+export function MoveDocument({ doc, currentId, onClose, onDone }) {
+  const [list, setList] = useState(null)
+  const [target, setTarget] = useState('')
+  const [reason, setReason] = useState('')
+  const toast = useToast()
+  useEffect(() => { api('/api/voyages').then((vs) => setList(vs.filter((v) => String(v.id) !== String(currentId)))) }, [currentId])
+  const move = async () => {
+    try { await api(`/api/documents/${doc.id}/move`, { method: 'POST', body: { voyage_id: Number(target), reason } }); toast('Đã chuyển chứng từ sang chuyến khác'); onDone() }
+    catch (e) { toast(e.message, 'err') }
+  }
+  return (
+    <Modal title={`Chuyển "${doc.original_name}" sang chuyến khác`} onClose={onClose}
+      footer={<><button className="btn" onClick={onClose}>Hủy</button><button className="btn primary" disabled={!target} onClick={move}>Chuyển</button></>}>
+      <p className="small muted" style={{ marginTop: 0 }}>Chứng từ cùng dữ liệu đã trích xuất sẽ chuyển sang hồ sơ được chọn (phải xác nhận lại ở hồ sơ đó). Việc chuyển được ghi vào lịch sử của cả hai chuyến.</p>
+      {!list ? <Spinner /> : !list.length ? <div className="alert amber">Chưa có chuyến tàu nào khác. Hãy tạo hồ sơ chuyến tàu đúng trước.</div> : (
+        <div className="field"><label className="f">Chuyến tàu đích</label>
+          <select value={target} onChange={(e) => setTarget(e.target.value)}><option value="">— chọn —</option>
+            {list.map((v) => <option key={v.id} value={v.id}>{v.voyage_code} · {v.vessel_name || 'chưa có tên tàu'} {v.voyage_no ? `· ${v.voyage_no}` : ''} {v.is_sample ? '(MẪU)' : ''}</option>)}
+          </select></div>)}
+      <div className="field"><label className="f">Lý do</label><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="VD: B/L của tàu khác tải nhầm" /></div>
     </Modal>
   )
 }

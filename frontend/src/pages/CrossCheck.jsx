@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { Badge, CHECK_STATUS, Modal, Spinner, useToast, useVoyage, VoyageHeader } from '../components'
+import { MoveDocument } from './Documents'
 
 const ORDER = ['WRONG_VOYAGE', 'MISMATCH', 'DUPLICATE', 'MISSING_INFO', 'NEEDS_REVIEW', 'LOW_CONFIDENCE', 'NOT_ENOUGH_DATA', 'NOT_AVAILABLE', 'PASSED']
 
@@ -90,6 +91,11 @@ function ResolveModal({ r, voyageId, onClose, onDone }) {
       toast('Đã cập nhật giá trị (giá trị gốc vẫn được lưu) và chạy lại đối chiếu'); onDone()
     } catch (e) { toast(e.message, 'err') }
   }
+  const [moving, setMoving] = useState(false)
+  const confirmDoc = async () => {
+    try { await api(`/api/documents/${r.doc1_id}/confirm-voyage`, { method: 'POST', body: { confirmed: true, reason: note } }); toast('Đã xác nhận chứng từ đúng hồ sơ và chạy lại đối chiếu'); onDone() }
+    catch (e) { toast(e.message, 'err') }
+  }
   const ack = async () => {
     try { await api(`/api/crosscheck/${r.id}/ack`, { method: 'POST', body: { note } }); toast('Đã ghi nhận chấp nhận khác biệt'); onDone() } catch (e) { toast(e.message, 'err') }
   }
@@ -111,7 +117,17 @@ function ResolveModal({ r, voyageId, onClose, onDone }) {
           <button className="btn" disabled={!custom.trim()} onClick={() => resolve('custom')}>Áp dụng</button></div>
         <hr />
       </>}
-      {r.status === 'WRONG_VOYAGE' && <div className="alert amber">Nếu chứng từ bị tải nhầm, hãy xóa nó ở màn hình <Link to={`/voyages/${voyageId}/documents`}>Xử lý chứng từ</Link>.</div>}
+      {r.status === 'WRONG_VOYAGE' && r.doc1_id && <>
+        <h3>Chứng từ nghi thuộc chuyến khác</h3>
+        <p className="small muted" style={{ marginTop: 0 }}>Dữ liệu của chứng từ này đang KHÔNG được đưa vào file Excel. Sau khi kiểm tra bản gốc:</p>
+        <div className="row" style={{ marginBottom: 12 }}>
+          <button className="btn" disabled={!note.trim()} onClick={confirmDoc} title="Cần ghi lý do ở ô Ghi chú">Xác nhận đúng hồ sơ</button>
+          <button className="btn" onClick={() => setMoving(true)}>Chuyển sang chuyến khác…</button>
+          <Link className="btn ghost" to={`/voyages/${voyageId}/documents`}>Xóa ở màn hình Xử lý chứng từ</Link>
+        </div>
+        {moving && <MoveDocument doc={{ id: r.doc1_id, original_name: r.doc1_name }} currentId={voyageId} onClose={() => setMoving(false)} onDone={onDone} />}
+        <hr />
+      </>}
       <h3>Hoặc chấp nhận khác biệt</h3>
       <p className="small muted">Dùng khi hai chứng từ thể hiện phạm vi/cách tính khác nhau một cách hợp lệ. Giá trị của cả hai chứng từ giữ nguyên. Bắt buộc ghi lý do.</p>
       <button className="btn" disabled={!note.trim()} onClick={ack}>Chấp nhận khác biệt</button>

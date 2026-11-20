@@ -1,4 +1,26 @@
-# Phân tích file mẫu NSW (`TemplateNSW.xlsx`)
+# Phân tích file mẫu NSW
+
+> **Cập nhật 20/11/2026:** mẫu đang dùng được tạo từ file **HQ_NHAP.xlsx** (bản khai NSW thực tế mới nhất của SGCL) bằng
+> `backend/tools/make_clean_template.py`: toàn bộ dữ liệu chuyến tàu trong file (thuyền viên, vận đơn, hàng hóa, cảng ghé…) đã bị xóa,
+> chuỗi không dùng bị loại khỏi file; chỉ giữ nhãn, định dạng, danh sách chọn, ghi chú, công thức tra cứu và sheet danh mục.
+> Khi NSW/SGCL có mẫu mới: chạy lại công cụ này rồi chạy bộ kiểm thử.
+
+## 0. Khác biệt của mẫu HQ_NHAP so với mẫu cũ
+
+| Nội dung | Mẫu cũ | Mẫu HQ_NHAP (đang dùng) |
+|---|---|---|
+| Số sheet | 21 | **20** – bỏ `InlandAttachmentList`; `Cargo manifest` (ẩn) đứng trước `Passenger list` |
+| DG manifest cột E | Proper shipping name | **Cty vận chuyển / Transporter's name** |
+| GD B33/B34, NOA B32, ConfirmationOfArrival B10 | công thức liên kết ngoài | **giá trị** → hệ thống ghi Ngày ký / Người ký |
+| Passenger list B3–B5, Empty Container B3–B5 | giá trị | công thức lỗi `#REF!` → đã thay bằng ô trống (B5 = CN01) |
+| Crew list | dòng mẫu 11 | dữ liệu tới dòng 29 + vùng phụ E30:E48 (ngày sinh) → đã làm sạch |
+| Ship Security | 1 dòng cảng | **10 dòng cảng ghé** (A25:E34) + vùng phụ C36:D45 |
+
+**Quy ước khai báo rút ra từ file thực tế (đã áp dụng làm mặc định):**
+Họ = `-`, Tên = họ tên đầy đủ · B4 ghi năm · cảng ghi mã UN/LOCODE (B6 cảng trước, B7/B8 = cảng đến) · DO/FO/FW chỉ ghi số ·
+B14–B19 ghi 1/0 theo bản khai có kèm · hàng rời: loại cont `Other`, đơn vị TNE/MTQ · ô không có thông tin trong file thực tế ghi `NIL`
+(hệ thống **không** tự ghi NIL – để trống và liệt kê cho nhân viên).
+
 
 ## 1. Cấu trúc tổng quát
 
@@ -42,9 +64,9 @@ Quy ước chung các sheet bản khai: **A = nhãn (Việt/Anh), B = giá trị
 
 | # | Câu hỏi | Mặc định hiện tại |
 |---|---------|------------------|
-| Q1 | Crew/Passenger list: dòng mẫu ghi **cùng một họ tên đầy đủ ở cả cột Họ và cột Tên**. NSW yêu cầu tách hay ghi như vậy? | Theo dòng mẫu (họ tên đầy đủ ở cả 2 cột); có tùy chọn tách “Họ = từ đầu…/Tên = từ cuối” |
+| Q1 | ~~Họ/Tên~~ – **đã rõ** từ file HQ_NHAP: Họ = "-", Tên = họ tên đầy đủ | Mặc định theo file thực tế; vẫn có tùy chọn khác |
 | Q2 | B3 Số hồ sơ / B4 Năm đăng ký: do NSW cấp hay đại lý tự điền? | Để trống (có ô nhập ở Tùy chọn xuất file) |
-| Q3 | GD B33/B34, NOA B32: đang là công thức tham chiếu file ngoài. Có được thay bằng giá trị nhập không? | Giữ công thức, không ghi đè |
+| Q3 | ~~Ngày ký/Người ký~~ – **đã rõ**: mẫu mới là giá trị | Ghi từ Tùy chọn xuất file |
 | Q4 | Mã cảng (UN/LOCODE) cho Goods Declaration P/R, DG B6/B7: lấy từ danh mục nào? | Lấy mã 5 ký tự có trong chứng từ; nếu không có → ghi nguyên văn + cảnh báo, nhân viên nhập mã |
 | Q5 | “List of House bill of lading”: làm sao phân biệt House B/L và Master B/L trong bộ chứng từ của SGCL? | Chưa điền, chỉ xóa mẫu |
 | Q6 | B14–B19 GD/NOA (“số bản” các bản khai kèm theo): ghi số lượng bản hay 1/0? | Để trống, nhập tay nếu cần |
@@ -52,3 +74,6 @@ Quy ước chung các sheet bản khai: **A = nhãn (Việt/Anh), B = giá trị
 | Q8 | Sheet ẩn “Cargo manifest” có còn dùng không? | Giữ ẩn, chỉ xóa mẫu |
 | Q9 | Bảng chất thải (A38:C43) và nhóm hàng C1_XEP/C2_DO… (A46:G51) cần phân loại theo danh mục NSW – quy tắc phân loại của SGCL? | Chưa điền (không tự suy đoán) |
 | Q10 | B5 Chức năng chứng từ ở các sheet không có dữ liệu: giữ `CN01` hay để trống? | Ghi giá trị chọn ở Tùy chọn (mặc định `CN01`) cho mọi sheet |
+
+| Q11 | Có muốn hệ thống tự ghi `NIL` vào các ô bắt buộc không có thông tin (như file thực tế)? | Để trống + liệt kê |
+| Q12 | List of House B/L: file thực tế khai cả B/L thường (Master = House). Có muốn tự điền mỗi B/L một khối? | Chưa điền |

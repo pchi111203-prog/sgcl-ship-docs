@@ -26,7 +26,8 @@ backend/app/
   nsw_export.py    Bảng ánh xạ → mẫu NSW, điều kiện xuất, ghi file, kiểm tra sau xuất
   xlsxpatch.py     Bộ ghi XLSX bảo toàn cấu trúc
   samples.py       Sinh bộ chứng từ MẪU cho 3 tình huống kiểm thử
-backend/templates/TemplateNSW.xlsx   File mẫu NSW (thay file này nếu NSW đổi mẫu)
+backend/templates/TemplateNSW.xlsx   Mẫu NSW sạch (20 sheet, tạo từ HQ_NHAP.xlsx bằng tools/make_clean_template.py)
+backend/tools/make_clean_template.py   Làm sạch một file NSW đã điền thành mẫu trắng (dùng khi có mẫu mới)
 backend/tests/test_scenarios.py      Kiểm thử tự động 3 tình huống + cách ly dữ liệu chuyến
 frontend/src/                        Giao diện React
 docs/NSW_TEMPLATE_ANALYSIS.md        Phân tích mẫu NSW + câu hỏi cần SGCL xác nhận
@@ -74,6 +75,20 @@ Biến môi trường: `SGCL_DATA_DIR` (thư mục dữ liệu), `SGCL_TEMPLATE`
 6. **Xuất file Excel NSW** (menu 7): xem điều kiện xuất (lỗi chặn, cảnh báo, ô trống), nhập Tùy chọn (chức năng chứng từ, nơi/ngày/người ký, loại hộ chiếu, cách tách họ tên), chọn mã NSW cho giá trị chưa ánh xạ, xem trước dữ liệu từng sheet → **Xuất file Excel NSW** → xem báo cáo kiểm tra → **Tải xuống**. Khi còn lỗi, chỉ có thể “Xuất ngoại lệ” bằng tài khoản Supervisor + lý do (được ghi lại).
 7. **Lịch sử xử lý** (menu 8): mở lại chuyến cũ, xem chứng từ, file đã xuất, nhật ký thao tác.
 8. **Cài đặt** (menu 9): trạng thái OCR, cấu trúc mẫu, bảng ánh xạ, tài khoản, hồ sơ tàu, tạo **dữ liệu mẫu** cho 3 tình huống kiểm thử (gắn nhãn “DỮ LIỆU MẪU”, mã `SAMPLE-…`).
+
+## 3b. Chức năng bổ sung (bản cập nhật Universal Multi-vessel)
+
+- 16 loại chứng từ nhận diện theo nội dung (thêm Ship Security, Health, Plant, Animal, Empty Container List; không nhận diện được → *Unknown Document*, không bị bỏ qua). Đọc thêm **.xls**.
+- Mỗi giá trị lưu: văn bản gốc, giá trị chuẩn hóa, chứng từ, trang, độ tin cậy, **kiểu dữ liệu, đơn vị**, trạng thái xác nhận.
+- **Thông tin tàu tổng hợp** (tab Tàu & chuyến): so sánh GD/NOA/Tonnage, hiện nguồn, mâu thuẫn không tự chọn.
+- **Possible Wrong Voyage Document** + cảnh báo trộn nhiều tàu trong một bộ: dữ liệu chứng từ nghi ngờ **không** vào Excel cho tới khi nhân viên *Xác nhận đúng hồ sơ* / *Chuyển sang chuyến khác* / *Xóa*. Chứng từ không ghi tên tàu/IMO/số chuyến → *Needs Manual Review*.
+- Đối chiếu nhóm **5. Container** (Manifest, B/L, Empty Container List, DG).
+- **Loại bỏ / khôi phục bản ghi** trích xuất (VD dòng tổng cộng đọc nhầm), giá trị gốc vẫn giữ.
+- Cảnh báo **trùng hồ sơ chuyến** (cùng IMO/tên tàu + số chuyến + cảng đến + ETA); hồ sơ mới là *hồ sơ nháp*.
+- Tiến trình: Uploaded → Classified → Extracted → Cross-checked → Reviewed → Ready to Export → Exported.
+- Nút **Trích xuất tất cả** (chỉ chứng từ chưa xử lý / lỗi); danh sách **Unmapped Fields** ở trang Xuất Excel.
+- Bản khai an ninh → sheet *Declaration For Ship Security* (ISSC, cấp độ an ninh, 10 cảng ghé); Empty Container List → sheet *Empty Container*.
+- Dữ liệu mẫu: 4 bộ (đầy đủ; sai lệch + nhiều B/L + container + an ninh; scan/thiếu/không nhận diện; 5 chứng từ với 35 thuyền viên & 50 dòng hàng).
 
 ## 4. Giới hạn hiện tại (cần biết)
 

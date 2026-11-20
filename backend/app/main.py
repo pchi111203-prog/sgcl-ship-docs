@@ -103,13 +103,15 @@ def _voyage_or_404(c, vid):
 
 def voyage_progress(c, v):
     vid = v["id"]
-    docs = db.rows(c, "SELECT status FROM documents WHERE voyage_id=?", (vid,))
+    docs = db.rows(c, "SELECT status, doc_type, doc_type_confirmed FROM documents WHERE voyage_id=?", (vid,))
     n_docs = len(docs)
     n_ext = sum(1 for d in docs if d["status"] == "EXTRACTED")
     n_err = sum(1 for d in docs if d["status"] == "ERROR")
     n_proc = sum(1 for d in docs if d["status"] in ("PROCESSING", "UPLOADED"))
     run = db.row(c, "SELECT * FROM crosscheck_runs WHERE voyage_id=? ORDER BY id DESC LIMIT 1", (vid,))
-    fstat = db.row(c, "SELECT COUNT(*) n, SUM(status='CONFIRMED') conf, MAX(updated_at) m FROM extracted_fields WHERE voyage_id=?", (vid,))
+    fstat = db.row(c, "SELECT SUM(status!='EXCLUDED') n, SUM(status='CONFIRMED') conf, MAX(updated_at) m FROM extracted_fields WHERE voyage_id=?", (vid,))
+    fstat = {"n": fstat["n"] or 0, "conf": fstat["conf"] or 0, "m": fstat["m"]}
+    n_unknown = sum(1 for d in docs if d["status"] == "EXTRACTED" and d["doc_type"] == "OTHER" and not d["doc_type_confirmed"])
     blocking = db.row(c, "SELECT COUNT(*) n FROM crosscheck_results WHERE voyage_id=? AND blocking=1", (vid,))["n"]
     issues = db.row(c, "SELECT COUNT(*) n FROM crosscheck_results WHERE voyage_id=? AND status NOT IN ('PASSED','NOT_AVAILABLE','NOT_ENOUGH_DATA') AND acknowledged=0", (vid,))["n"]
     exports = db.row(c, "SELECT COUNT(*) n, MAX(created_at) last FROM exports WHERE voyage_id=?", (vid,))
@@ -123,6 +125,9 @@ def voyage_progress(c, v):
     steps = [
         {"key": "create", "label": "Tạo chuyến tàu", "done": True, "why": ""},
         {"key": "upload", "label": "Tải chứng từ", "done": n_docs > 0, "why": "Chưa tải chứng từ nào."},
+        {"key": "classify", "label": "Phân loại", "done": n_docs > 0 and n_proc == 0 and n_unknown == 0,
+         "why": f"{n_unknown} chứng từ chưa nhận diện được loại (Unknown) - chọn loại hoặc xác nhận là chứng từ khác." if n_unknown
+         else ("Chưa có chứng từ." if not n_docs else "Đang nhận diện chứng từ.")},
         {"key": "extract", "label": "Trích xuất", "done": n_docs > 0 and n_ext == n_docs,
          "why": f"{n_ext}/{n_docs} chứng từ đã trích xuất" + (f", {n_err} chứng từ lỗi xử lý" if n_err else "") + (f", {n_proc} đang xử lý" if n_proc else "") + "."},
         {"key": "check", "label": "Đối chiếu", "done": check_fresh and n_docs > 0,
@@ -132,8 +137,13 @@ def voyage_progress(c, v):
          "why": "; ".join(x for x in [f"còn {blocking} lỗi chặn (Mismatch/Duplicate/Wrong Voyage) chưa xử lý" if blocking else "",
                                      f"còn {unconfirmed_used} trường sẽ ghi vào Excel chưa xác nhận" if unconfirmed_used else "",
                                      "chưa có dữ liệu trích xuất" if not fstat["n"] else ""] if x) + "."},
+        {"key": "ready", "label": "Sẵn sàng xuất", "done": False, "why": ""},
         {"key": "export", "label": "Xuất Excel", "done": exports["n"] > 0, "why": "Chưa xuất file Excel."},
     ]
+    by = {s["key"]: s for s in steps}
+    by["ready"]["done"] = all(by[k]["done"] for k in ("upload", "classify", "extract", "check", "review")) and n_err == 0
+    by["ready"]["why"] = "Cần hoàn thành các bước trước: " + ", ".join(by[k]["label"] for k in ("upload", "classify", "extract", "check", "review")
+                                                                     if not by[k]["done"]) if not by["ready"]["done"] else ""
     done = sum(s["done"] for s in steps)
     if exports["n"]:
         status = "EXPORTED"
@@ -148,6 +158,11 @@ def voyage_progress(c, v):
     return {"steps": steps, "progress": round(done / len(steps) * 100), "status": status, "documents": n_docs, "extracted": n_ext,
             "errors": n_err, "fields": fstat["n"], "confirmed": fstat["conf"] or 0, "unconfirmed_export": unconfirmed_used, "blocking": blocking, "issues": issues,
             "exports": exports["n"], "last_export": exports["last"], "last_check": run["run_at"] if run else None, "check_fresh": check_fresh}
+
+
+def _recheck_if_run(c, vid, user):
+    if db.row(c, "SELECT id FROM crosscheck_runs WHERE voyage_id=? LIMIT 1", (vid,)):
+        crosscheck.run(c, vid, user)
 
 
 def _touch(c, vid):
@@ -224,6 +239,7 @@ class VoyageIn(BaseModel):
     cargo_type: str | None = None
     notes: str | None = None
     save_profile: bool = False
+    allow_duplicate: bool = False
 
 
 VOYAGE_COLS = ["vessel_profile_id", "vessel_name", "imo", "call_sign", "flag", "voyage_no", "port_of_arrival", "last_port", "next_port",
@@ -245,6 +261,25 @@ def _create_voyage(c, data: dict, user, is_sample=False):
     return vid
 
 
+def _find_duplicate_voyage(c, data):
+    """Same vessel (IMO, else name) + same voyage number (+ same port / ETA date when both are known)."""
+    vno = N.norm_id(data.get("voyage_no"))
+    if not vno:
+        return None
+    for v in db.rows(c, "SELECT * FROM voyages WHERE is_sample=0"):
+        same_ship = (data.get("imo") and v["imo"] and N.norm_id(data["imo"]) == N.norm_id(v["imo"])) or \
+                    (not (data.get("imo") and v["imo"]) and data.get("vessel_name") and v["vessel_name"]
+                     and N.norm_text(data["vessel_name"]) == N.norm_text(v["vessel_name"]))
+        if not same_ship or N.norm_id(v["voyage_no"]) != vno:
+            continue
+        if data.get("port_of_arrival") and v["port_of_arrival"] and N.norm_text(data["port_of_arrival"]) != N.norm_text(v["port_of_arrival"]):
+            continue
+        if data.get("eta") and v["eta"] and (N.parse_date(data["eta"])[0] or "")[:10] != (N.parse_date(v["eta"])[0] or "")[:10]:
+            continue
+        return v
+    return None
+
+
 @app.get("/api/voyages")
 def list_voyages(u=Depends(current_user)):
     with db.tx() as c:
@@ -257,7 +292,13 @@ def list_voyages(u=Depends(current_user)):
 @app.post("/api/voyages")
 def create_voyage(body: VoyageIn, u=Depends(current_user)):
     data = body.model_dump()
+    data.pop("allow_duplicate", None)
     with db.tx() as c:
+        dup = _find_duplicate_voyage(c, data)
+        if dup and not body.allow_duplicate:
+            raise HTTPException(409, {"message": f"Có thể trùng hồ sơ: chuyến {dup['voyage_code']} đã có cùng IMO/tên tàu + số chuyến"
+                                                 f"{' + cảng đến' if dup.get('port_of_arrival') else ''}. Mở hồ sơ cũ hoặc xác nhận tạo hồ sơ mới.",
+                                      "duplicate_id": dup["id"], "duplicate_code": dup["voyage_code"]})
         if body.save_profile and body.vessel_name and not body.vessel_profile_id:
             cur = c.execute("INSERT INTO vessel_profiles(vessel_name,imo,call_sign,flag,created_at,updated_at) VALUES(?,?,?,?,?,?)",
                             (body.vessel_name.strip().upper(), body.imo, body.call_sign, body.flag, db.now(), db.now()))
@@ -295,20 +336,23 @@ def update_voyage(vid: int, body: VoyageIn, u=Depends(current_user)):
 def profile_suggestions(vid: int, u=Depends(current_user)):
     """Values for the voyage record proposed from GD / NOA / Tonnage (only when sources agree).
     Nothing is written until staff press 'Áp dụng'."""
-    keys = {"vessel_name": ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "TONNAGE_CERTIFICATE"], "imo": None, "call_sign": None, "flag": None,
+    keys = {"vessel_name": None, "imo": None, "call_sign": None, "flag": None,
             "voyage_no": ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL"], "port_of_arrival": ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL"],
             "last_port": ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL"], "next_port": ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL"],
-            "eta": ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL"], "etd": ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL"]}
+            "eta": ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL"], "etd": ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL"],
+            "master_name": ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "CREW_LIST"], "gross_tonnage": None, "net_tonnage": None,
+            "crew_count": ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL"]}
     out = []
     with db.tx() as c:
         v = _voyage_or_404(c, vid)
         for k, types in keys.items():
             types = types or ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "TONNAGE_CERTIFICATE"]
-            fs = db.rows(c, f"SELECT f.value, d.original_name, f.page_no FROM extracted_fields f JOIN documents d ON d.id=f.document_id "
-                            f"WHERE f.voyage_id=? AND f.section='vessel' AND f.record_key='header' AND f.field_key=? AND d.doc_type IN ({','.join('?' * len(types))})",
+            # consolidated vessel information = priority documents only (GD > NOA > Tonnage); other documents are checked by Wrong-Voyage
+            fs = db.rows(c, f"SELECT f.value, f.status, d.original_name, d.doc_type, f.page_no FROM extracted_fields f JOIN documents d ON d.id=f.document_id "
+                            f"WHERE f.voyage_id=? AND f.status!='EXCLUDED' AND f.section='vessel' AND f.record_key='header' AND f.field_key=? AND d.doc_type IN ({','.join('?' * len(types))})",
                          (vid, k, *types))
             vals = {N.norm_text(f["value"]): f["value"] for f in fs if f["value"]}
-            out.append({"key": k, "label": extract.FIELD_LABELS.get(k, k), "current": v.get(k), "sources": fs,
+            out.append({"key": k, "label": extract.FIELD_LABELS.get(k, k), "current": v.get(k), "sources": fs, "applicable": k in VOYAGE_COLS,
                         "value": next(iter(vals.values())) if len(vals) == 1 else None, "conflict": len(vals) > 1})
     return out
 
@@ -337,6 +381,7 @@ def _rm(p):
 def list_documents(vid: int, u=Depends(current_user)):
     with db.tx() as c:
         docs = db.rows(c, "SELECT d.*, (SELECT COUNT(*) FROM extracted_fields f WHERE f.document_id=d.id) n_fields, "
+                          "(SELECT COUNT(*) FROM crosscheck_results r WHERE r.doc1_id=d.id AND r.status='WRONG_VOYAGE' AND r.acknowledged=0) suspect, "
                           "(SELECT COUNT(DISTINCT record_key) FROM extracted_fields f WHERE f.document_id=d.id AND record_key!='header') n_records "
                           "FROM documents d WHERE voyage_id=? ORDER BY id", (vid,))
     return {"documents": docs, "types": extract.DOC_TYPES}
@@ -489,16 +534,20 @@ def process_document(did, user):
                 c.execute("INSERT INTO document_pages(document_id,page_no,text,method,confidence) VALUES(?,?,?,?,?)",
                           (did, p["page_no"], p["text"], p["method"], p["confidence"]))
             for f in fields:
+                dtype, unit = extract.field_meta(f["field_key"], f["original_value"])
                 c.execute("INSERT INTO extracted_fields(voyage_id,document_id,section,record_key,record_index,field_key,field_label,original_value,value,"
-                          "page_no,confidence,method,status,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'EXTRACTED',?)",
+                          "page_no,confidence,method,status,updated_at,data_type,unit) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'EXTRACTED',?,?,?)",
                           (d["voyage_id"], did, f["section"], f["record_key"], f["record_index"], f["field_key"], f["field_label"],
-                           f["original_value"], f["value"], f["page_no"], f["confidence"], f["method"], db.now()))
+                           f["original_value"], f["value"], f["page_no"], f["confidence"], f["method"], db.now(), dtype, unit))
             err = None
-            if not fields:
+            unknown_ok = doc_type == "OTHER" and any((p["text"] or "").strip() for p in pages)
+            if not fields and unknown_ok:
+                err = "Unknown Document: chưa nhận diện được loại chứng từ - chọn loại nếu đây là chứng từ nghiệp vụ, hoặc để 'Chứng từ khác'."
+            elif not fields:
                 err = "Không trích xuất được trường dữ liệu nào (nội dung không đọc được hoặc chưa có mẫu nhận diện)."
             c.execute("UPDATE documents SET status=?, error=?, doc_type=?, doc_type_auto=?, doc_type_score=?, page_count=?, extraction_method=?, "
                       "avg_confidence=?, processed_at=? WHERE id=?",
-                      ("EXTRACTED" if fields else "ERROR", err, doc_type, auto, score, len(pages), "+".join(methods), conf, db.now(), did))
+                      ("EXTRACTED" if fields or unknown_ok else "ERROR", err, doc_type, auto, score, len(pages), "+".join(methods), conf, db.now(), did))
             db.log(c, d["voyage_id"], "EXTRACT", user, reason=f"{d['original_name']}: {len(fields)} trường, loại {doc_type}")
             _touch(c, d["voyage_id"])
     except Exception as e:
@@ -587,6 +636,93 @@ def add_record(vid: int, body: RecordIn, u=Depends(current_user)):
                       (vid, body.section, rk, 10000 + n + 1, k, extract.FIELD_LABELS.get(k, k), v.strip(), db.now()))
         db.log(c, vid, "ADD_MANUAL_RECORD", u["username"], field_key=body.section, new=str(body.fields))
     return {"ok": True}
+
+
+class RecordRef(BaseModel):
+    document_id: int | None = None
+    section: str
+    record_key: str
+    exclude: bool = True
+    reason: str | None = None
+
+
+@app.post("/api/voyages/{vid}/records/exclude")
+def exclude_record(vid: int, body: RecordRef, u=Depends(current_user)):
+    """Remove an extracted record from the declaration (e.g. a total/footer line read as a row) - values are kept, status EXCLUDED."""
+    with db.tx() as c:
+        fs = db.rows(c, "SELECT * FROM extracted_fields WHERE voyage_id=? AND section=? AND record_key=? AND document_id IS ?",
+                     (vid, body.section, body.record_key, body.document_id))
+        if not fs:
+            raise HTTPException(404, "Không tìm thấy bản ghi")
+        for f in fs:
+            if body.exclude:
+                new = "EXCLUDED"
+            else:
+                new = "EDITED" if (f["value"] or "") != (f["original_value"] or "") else "EXTRACTED"
+            c.execute("UPDATE extracted_fields SET status=?, confirmed_by=NULL, confirmed_at=NULL, updated_at=? WHERE id=?", (new, db.now(), f["id"]))
+        db.log(c, vid, "EXCLUDE_RECORD" if body.exclude else "RESTORE_RECORD", u["username"], field_key=body.record_key, reason=body.reason)
+    return {"ok": True, "count": len(fs)}
+
+
+class MoveIn(BaseModel):
+    voyage_id: int
+    reason: str | None = None
+
+
+@app.post("/api/documents/{did}/move")
+def move_document(did: int, body: MoveIn, u=Depends(current_user)):
+    """Move a document (with its extracted data) to the voyage it really belongs to."""
+    with db.tx() as c:
+        d = db.row(c, "SELECT * FROM documents WHERE id=?", (did,))
+        if not d:
+            raise HTTPException(404)
+        target = _voyage_or_404(c, body.voyage_id)
+        if target["id"] == d["voyage_id"]:
+            raise HTTPException(400, "Chứng từ đã thuộc chuyến này")
+        c.execute("UPDATE documents SET voyage_id=?, voyage_confirmed=0 WHERE id=?", (target["id"], did))
+        c.execute("UPDATE extracted_fields SET voyage_id=?, status=CASE WHEN status='CONFIRMED' THEN 'EXTRACTED' ELSE status END, "
+                  "confirmed_by=NULL, confirmed_at=NULL, updated_at=? WHERE document_id=?", (target["id"], db.now(), did))
+        db.log(c, d["voyage_id"], "MOVE_DOCUMENT_OUT", u["username"], old=d["original_name"], new=target["voyage_code"], reason=body.reason)
+        db.log(c, target["id"], "MOVE_DOCUMENT_IN", u["username"], new=d["original_name"], reason=body.reason)
+        _touch(c, d["voyage_id"])
+        _touch(c, target["id"])
+        _recheck_if_run(c, d["voyage_id"], u["username"])
+        _recheck_if_run(c, target["id"], u["username"])
+    return {"ok": True}
+
+
+class ConfirmDocIn(BaseModel):
+    confirmed: bool = True
+    reason: str | None = None
+
+
+@app.post("/api/documents/{did}/confirm-voyage")
+def confirm_document_voyage(did: int, body: ConfirmDocIn, u=Depends(current_user)):
+    """Staff checked the original: the document does belong to this voyage (e.g. vessel renamed, typo on the B/L)."""
+    if body.confirmed and not (body.reason or "").strip():
+        raise HTTPException(400, "Cần ghi lý do xác nhận")
+    with db.tx() as c:
+        d = db.row(c, "SELECT * FROM documents WHERE id=?", (did,))
+        if not d:
+            raise HTTPException(404)
+        c.execute("UPDATE documents SET voyage_confirmed=?, voyage_confirmed_by=? WHERE id=?",
+                  (1 if body.confirmed else 0, u["username"] if body.confirmed else None, did))
+        db.log(c, d["voyage_id"], "CONFIRM_DOCUMENT_VOYAGE" if body.confirmed else "UNCONFIRM_DOCUMENT_VOYAGE", u["username"],
+               old=d["original_name"], reason=body.reason)
+        _touch(c, d["voyage_id"])
+        _recheck_if_run(c, d["voyage_id"], u["username"])
+    return {"ok": True}
+
+
+@app.post("/api/voyages/{vid}/process-pending")
+def process_pending(vid: int, u=Depends(current_user)):
+    """'Extract all': (re)process documents that are not extracted yet or failed. Extracted documents are left untouched."""
+    with db.tx() as c:
+        _voyage_or_404(c, vid)
+        ids = [r["id"] for r in db.rows(c, "SELECT id FROM documents WHERE voyage_id=? AND status IN ('UPLOADED','ERROR')", (vid,))]
+    for did in ids:
+        _queue(did, u["username"])
+    return {"queued": len(ids)}
 
 
 class FieldAdd(BaseModel):
@@ -873,7 +1009,7 @@ def change_password(body: PwIn, u=Depends(current_user)):
 @app.post("/api/samples/{scenario}")
 def create_sample(scenario: int, u=Depends(current_user)):
     """Create a SAMPLE voyage (is_sample=1) with generated documents for test scenario 1/2/3."""
-    if scenario not in (1, 2, 3):
+    if scenario not in (1, 2, 3, 4):
         raise HTTPException(400)
     with tempfile.TemporaryDirectory() as td:
         files = samples.generate(scenario, td)

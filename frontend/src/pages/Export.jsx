@@ -99,6 +99,14 @@ export default function Export({ user }) {
           })}</tbody></table>
       </div>}
 
+      {rd.unmapped_fields?.length > 0 && <div className="card">
+        <details><summary style={{ cursor: 'pointer' }}><b>Unmapped Fields – {rd.unmapped_fields.length} loại dữ liệu đã trích xuất nhưng mẫu NSW không có ô tương ứng</b></summary>
+          <p className="small muted">Các dữ liệu này vẫn được lưu và dùng để đối chiếu / nhận diện chuyến tàu, nhưng không được ghi vào file Excel. Nếu cần đưa vào Excel, báo bộ phận phát triển bổ sung ánh xạ.</p>
+          <table className="t"><thead><tr><th>Dữ liệu</th><th>Số giá trị</th><th>Từ chứng từ</th></tr></thead><tbody>
+            {rd.unmapped_fields.map((u) => <tr key={u.field}><td>{u.label}</td><td>{u.count}</td><td className="small muted">{u.docs.join(', ')}</td></tr>)}
+          </tbody></table></details>
+      </div>}
+
       <div className="card tight">
         <div className="card-head"><h2>Xem trước dữ liệu sẽ điền vào file mẫu</h2></div>
         <div style={{ padding: '0 18px' }}>

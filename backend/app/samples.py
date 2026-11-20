@@ -6,7 +6,8 @@ from them are flagged is_sample=1, so they are never confused with real data.
   scenario 1 - complete & consistent set (text PDFs + DOCX + XLSX)
   scenario 2 - set with discrepancies (B/L gross weight vs manifest, container no.,
                duplicate crew passport, a B/L belonging to another vessel)
-  scenario 3 - scanned set (image-only PDF + PNG) with missing information
+  scenario 3 - scanned set (image-only PDF + PNG) with missing information + one unrecognisable document
+  scenario 4 - 5 documents only (GD, NOA, Tonnage, Crew List 35 persons, Cargo Manifest 50 lines), consistent
 """
 import io
 import os
@@ -24,6 +25,7 @@ VESSELS = {
     1: dict(name="SAMPLE TEAL STAR", imo="9395044", call_sign="3EXA7", flag="PANAMA", voyage="2611N", gt="9,940", nt="5,231"),
     2: dict(name="SAMPLE MEKONG PEARL", imo="9187356", call_sign="XVQB9", flag="VIETNAM", voyage="045S", gt="6,543", nt="3,412"),
     3: dict(name="SAMPLE CUU LONG BREEZE", imo="9406087", call_sign="9V2210", flag="SINGAPORE", voyage="118W", gt="17,068", nt="7,889"),
+    4: dict(name="SAMPLE SAIGON HORIZON", imo="9321483", call_sign="3FQW5", flag="PANAMA", voyage="0712E", gt="25,305", nt="12,410"),
 }
 
 FIRST = ["NGUYEN VAN", "TRAN MINH", "LE HOANG", "PHAM DUC", "HOANG THANH", "VU QUOC", "DANG VAN", "BUI XUAN", "DO MANH", "NGO TRUNG", "DUONG VAN", "LY THANH"]
@@ -54,6 +56,16 @@ def _crew(n, seed):
 
 
 def _cargo(seed, n=6):
+    if n > 8:  # large manifest: unique B/L and container per line
+        rnd = random.Random(seed * 7)
+        out = []
+        for i in range(n):
+            out.append(dict(bl=f"SHZ{seed}{i+1:04d}", shipper="ORIENT EXPORT CO., LTD", consignee="SAIGON IMPORT JSC", notify="SAME AS CONSIGNEE",
+                            desc=rnd.choice(["FURNITURE", "GARMENTS", "TILES", "MACHINERY PARTS", "PLASTIC RESIN"]), pkgs=str(rnd.randint(10, 400)),
+                            kind="PACKAGES", gw=f"{rnd.randint(3000, 24000):,}.00", meas=f"{rnd.randint(10, 60)}.0",
+                            cont=_iso_container(rnd.choice(["MSKU", "TGHU", "CAIU"]), 200000 + i * 37), seal=f"SZ{100000 + i}",
+                            pol="SHANGHAI (CNSHA)", pod="CAT LAI, HO CHI MINH (VNCLI)", un=None, ctype="45G1" if i % 2 else "22G1", ctype_bl=""))
+        return out
     rnd = random.Random(seed)
     goods = ["RICE IN PP BAGS", "FROZEN SHRIMP", "STEEL COILS", "GARMENTS", "FURNITURE PARTS", "PAINT (FLAMMABLE)", "RUBBER SHEETS", "CASHEW NUTS"]
     out = []
@@ -194,6 +206,44 @@ def gen_effects_docx(path, v, crew):
     d.save(path)
 
 
+def gen_empty_containers_xlsx(path, v, conts):
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["EMPTY CONTAINER LIST - SAMPLE / DU LIEU MAU"])
+    ws.append([f"Vessel name: {v['name']}", f"Voyage No: {v['voyage']}"])
+    ws.append([])
+    ws.append(["No.", "B/L No.", "Container No.", "Size/Type", "Port of discharge"])
+    for i, (bl, c, t) in enumerate(conts):
+        ws.append([i + 1, bl, c, t, "CAT LAI (VNCLI)"])
+    wb.save(path)
+
+
+def gen_security(path, v, ports):
+    story = _kv(["<b>PRE-ARRIVAL SHIP SECURITY DECLARATION</b> (Declaration for Ship Security)", f"Name of ship: {v['name']}",
+                 f"IMO number: {v['imo']}", f"Call sign: {v['call_sign']}", f"Voyage No: {v['voyage']}", "Port of arrival: HO CHI MINH CITY (VNCLI)",
+                 "ETA: 21/11/2026 06:00", "Name of issuing authority: PANAMA MARITIME AUTHORITY", "Date of issue of the ISSC: 12/03/2024",
+                 "Date of expiry of the ISSC: 11/03/2029", "Current security level: 1", "Latitude: 10-25.300N", "Longitude: 107-02.100E",
+                 "", "Last 10 ports of call:"])
+    hdr = ["No.", "Port code", "Port name", "Date of arrival", "Date of departure", "Security level"]
+    story.append(_grid(hdr, [[str(i + 1), *p] for i, p in enumerate(ports)], font=8))
+    _doc(path, story)
+
+
+def gen_unknown(path):
+    _doc(path, _kv(["<b>INTERNAL NOTE</b>", "", "Please arrange fresh provisions and garbage collection on arrival.",
+                    "Contact the chief cook for the list.", "", "Thank you."]))
+
+
+def gen_large_manifest(path, v, cargo):
+    story = _kv(["<b>CARGO MANIFEST</b>", f"Vessel name: {v['name']}   Voyage No: {v['voyage']}", ""])
+    hdr = ["B/L No.", "Shipper", "Consignee", "Description of goods", "No. of packages", "Gross weight (KGS)", "Measurement (CBM)",
+           "Container No.", "Cont. type", "Seal No.", "Port of loading", "Port of discharge"]
+    story.append(_grid(hdr, [[c["bl"], c["shipper"], c["consignee"], c["desc"], c["pkgs"], c["gw"], c["meas"], c["cont"], c["ctype"],
+                              c["seal"], c["pol"], c["pod"]] for c in cargo], font=6))
+    _doc(path, story, land=True)
+
+
 def _scan(pdf_path, out_pdf, out_png=None, seed=0):
     """Render a PDF to a noisy, slightly rotated image-only PDF (simulated scan)."""
     import pymupdf as fitz
@@ -247,6 +297,23 @@ def generate(scenario, out_dir):
         gen_dg(p("07_dangerous_goods_manifest.pdf"), v, cargo)
         gen_stores_xlsx(p("08_ships_stores.xlsx"), v)
         gen_effects_docx(p("09_crew_effects.docx"), v, crew)
+        if scenario == 2:
+            # one container of the manifest is wrongly declared as empty -> container cross-check must flag it
+            gen_empty_containers_xlsx(p("10_empty_containers.xlsx"), v, [("EMPTY001", _iso_container("TGHU", 555001), "20GP"),
+                                                                          ("EMPTY002", _iso_container("CAIU", 555002), "40HC"),
+                                                                          (cargo[3]["bl"], cargo[3]["cont"], "20GP")])
+            ports = [("THBKK", "BANGKOK", "02/05/2026", "05/05/2026", "1"), ("SGSIN", "SINGAPORE", "08/06/2026", "09/06/2026", "1"),
+                     ("MYPKG", "PORT KLANG", "23/08/2026", "01/09/2026", "1"), ("BDCGP", "CHITTAGONG", "08/09/2026", "23/09/2026", "1"),
+                     ("SGSIN", "SINGAPORE", "10/11/2026", "11/11/2026", "1")]
+            gen_security(p("11_doc_scan_0457.pdf"), v, ports)  # neutral file name: must be recognised from content
+    elif scenario == 4:
+        crew = _crew(35, seed=41)
+        cargo = _cargo(4, n=50)
+        gen_gd(p("A_gd.pdf"), v, len(crew), eta)
+        gen_noa(p("B_noa.pdf"), v, eta)
+        gen_tonnage(p("C_cert.pdf"), v)
+        gen_crew(p("D_list.pdf"), v, crew)
+        gen_large_manifest(p("E_manifest.pdf"), v, cargo)
     else:
         tmp = os.path.join(out_dir, "_tmp")
         os.makedirs(tmp, exist_ok=True)
@@ -256,6 +323,7 @@ def generate(scenario, out_dir):
         _scan(os.path.join(tmp, "crew.pdf"), p("02_crew_list_SCAN.pdf"), seed=4)
         gen_tonnage(os.path.join(tmp, "ton.pdf"), v)
         _scan(os.path.join(tmp, "ton.pdf"), p("03_tonnage_certificate_SCAN.pdf"), out_png=p("04_tonnage_certificate_PHOTO.png"), seed=5)
+        gen_unknown(p("05_Document01.pdf"))
         import shutil
         shutil.rmtree(tmp)
     return files

@@ -49,10 +49,11 @@ export default function Settings({ user }) {
       <div className="card" style={{ borderColor: '#f5d0fe' }}>
         <h2>Dữ liệu mẫu để kiểm thử <span className="badge b-sample">DỮ LIỆU MẪU</span></h2>
         <p className="small muted">Tạo một chuyến tàu MẪU (tàu giả lập, mã chuyến bắt đầu bằng “SAMPLE-”) với bộ chứng từ được sinh tự động. Chuyến mẫu luôn được gắn nhãn và không dùng cho khai báo thật.</p>
-        <div className="grid g3">
+        <div className="grid g4">
           {[[1, 'Bộ chứng từ đầy đủ & thống nhất', 'GD, NOA, Tonnage, Manifest, 3 B/L, Crew List 22 người, DG, Stores (XLSX), Effects (DOCX)'],
-            [2, 'Bộ chứng từ có sai lệch', 'Gross Weight B/L ≠ Manifest, sai số container, ETA khác nhau, trùng hộ chiếu, B/L của tàu khác'],
-            [3, 'Bộ chứng từ scan / thiếu thông tin', 'PDF scan + ảnh PNG (OCR), GD thiếu ETA và số thuyền viên, danh sách thuyền viên khó đọc']].map(([n, t, d]) => (
+            [2, 'Bộ chứng từ có sai lệch', 'Nhiều B/L, Gross Weight ≠ Manifest, sai container, ETA khác nhau, trùng hộ chiếu, B/L của tàu khác, container khai vừa rỗng vừa có hàng, Bản khai an ninh'],
+            [3, 'Bộ chứng từ scan / thiếu thông tin', 'PDF scan + ảnh PNG (OCR), GD thiếu ETA và số thuyền viên, danh sách thuyền viên khó đọc, 1 chứng từ không nhận diện được'],
+            [4, 'Bộ 5 chứng từ, danh sách lớn', 'GD, NOA, Tonnage, Crew List 35 người, Cargo Manifest 50 dòng – tên file không gợi ý loại chứng từ']].map(([n, t, d]) => (
             <div key={n} className="stat"><b>Tình huống {n}: {t}</b><div className="small muted" style={{ margin: '6px 0 10px' }}>{d}</div>
               <button className="btn sm primary" disabled={!!busy} onClick={() => sample(n)}>{busy === n ? <Spinner /> : 'Tạo chuyến mẫu'}</button></div>))}
         </div>

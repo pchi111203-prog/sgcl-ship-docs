@@ -24,7 +24,12 @@ DOC_TYPES = {
     "DG_MANIFEST": "Dangerous Goods Manifest (Bản khai hàng nguy hiểm)",
     "CREW_EFFECTS": "Crew's Effects Declaration (Bản khai hành lý thuyền viên)",
     "SHIP_STORES": "Ship's Stores Declaration (Bản khai dự trữ tàu)",
-    "OTHER": "Chứng từ khác",
+    "SHIP_SECURITY": "Declaration for Ship Security (Bản khai an ninh tàu biển)",
+    "HEALTH_DECLARATION": "Maritime Declaration of Health (Bản khai y tế)",
+    "PLANT_DECLARATION": "Declaration for Plant (Bản khai kiểm dịch thực vật)",
+    "ANIMAL_DECLARATION": "Declaration for Animal (Bản khai kiểm dịch động vật)",
+    "EMPTY_CONTAINER_LIST": "Empty Container List (Danh sách container rỗng)",
+    "OTHER": "Unknown Document – Chứng từ chưa nhận diện / khác",
 }
 
 CLASSIFY_RULES = {
@@ -45,6 +50,15 @@ CLASSIFY_RULES = {
     "DG_MANIFEST": [(r"DANGEROUS\s+GOODS", 9), (r"HAZARDOUS", 5), (r"IMDG", 5), (r"HANG\s+NGUY\s+HIEM", 10),
                     (r"\bUN\s*(NO|NUMBER)", 3), (r"FLASH\s*POINT", 3), (r"IMO\s+FAL\s+FORM\s+7\b", 8)],
     "CREW_EFFECTS": [(r"CREW'?S?\s+EFFECTS", 12), (r"HANH\s+LY\s+THUYEN\s+VIEN", 12), (r"IMO\s+FAL\s+FORM\s+4\b", 8)],
+    "SHIP_SECURITY": [(r"SHIP\s+SECURITY", 10), (r"PRE[\s-]*ARRIVAL\s+SECURITY", 12), (r"AN\s+NINH\s+TAU", 10), (r"\bISSC\b", 5),
+                      (r"SECURITY\s+LEVEL", 4), (r"LAST\s+(10|TEN)\s+PORTS?", 6), (r"SHIP\s+SECURITY\s+OFFICER", 3)],
+    "HEALTH_DECLARATION": [(r"DECLARATION\s+OF\s+HEALTH", 12), (r"MARITIME\s+DECLARATION", 10), (r"Y\s+TE\s+HANG\s+HAI", 12),
+                           (r"SHIP\s+SANITATION", 4), (r"HEALTH\s+QUESTIONS", 5), (r"DECLARATION\s+FOR\s+HEALTH", 12)],
+    "PLANT_DECLARATION": [(r"DECLARATION\s+FOR\s+PLANT", 12), (r"KIEM\s+DICH\s+THUC\s+VAT", 12), (r"PHYTOSANITARY", 8), (r"PLANT\s+QUARANTINE", 10)],
+    "ANIMAL_DECLARATION": [(r"DECLARATION\s+FOR\s+ANIMAL", 12), (r"KIEM\s+DICH\s+DONG\s+VAT", 12), (r"ANIMAL\s+QUARANTINE", 10),
+                           (r"VETERINARY", 6)],
+    "EMPTY_CONTAINER_LIST": [(r"EMPTY\s+CONTAINERS?\s+(LIST|DECLARATION|MANIFEST)", 12), (r"CONTAINER\s+RONG", 12),
+                             (r"LIST\s+OF\s+EMPTY\s+CONTAINERS?", 12), (r"\bEMPTY\b", 2)],
     "SHIP_STORES": [(r"SHIP'?S?\s+STORES?", 12), (r"DU\s+TRU\s+(CUA\s+)?TAU", 12), (r"IMO\s+FAL\s+FORM\s+3\b", 8),
                     (r"NAME\s+OF\s+ARTICLE", 4), (r"LOCATION\s+ON\s+BOARD", 3)],
 }
@@ -114,6 +128,12 @@ H = {
     "net_weight": ("Net weight", [r"net\s+weight", r"\bn\s*\.?\s*w\.?\b(?=\s*[:\-\s]\s*\d)"]),
     "measurement": ("Measurement", [r"measurement", r"\bvolume\b", r"\bcbm\b(?=\s*[:\-])"]),
     "description": ("Description of goods", [r"description\s+of\s+(the\s+)?goods", r"description\s+of\s+packages\s+and\s+goods", r"kind\s+of\s+packages;?\s*description\s+of\s+goods", r"\bcommodity\b", r"m[oô]\s+t[aả]\s+h[aà]ng"]),
+    "issc_issuer": ("Cơ quan cấp ISSC", [r"issuing\s+authority", r"issued\s+by", r"c[oơ]\s+quan\s+c[aấ]p"]),
+    "issc_issue_date": ("Ngày cấp ISSC", [r"date\s+of\s+issue\s+of\s+(the\s+)?issc", r"issc\s+(issue\s+)?date", r"issc\s+issued\s+on"]),
+    "issc_expiry": ("Ngày hết hạn ISSC", [r"date\s+of\s+expiry\s+of\s+(the\s+)?issc", r"issc\s+expir\w*", r"expiry\s+date\s+of\s+issc"]),
+    "security_level": ("Cấp độ an ninh hiện tại", [r"current\s+security\s+level", r"security\s+level(?!s)", r"c[aấ]p\s+[dđ][oộ]\s+an\s+ninh"]),
+    "latitude": ("Vĩ độ", [r"\blatitude\b", r"v[iĩ]\s+[dđ][oộ]"]),
+    "longitude": ("Kinh độ", [r"\blongitude\b", r"kinh\s+[dđ][oộ]"]),
     "container_type": ("Loại container", [r"size\s*/\s*type", r"cont(ainer)?\.?\s*type", r"equipment\s*type", r"container\s+size"]),
     "date_of_bl": ("Ngày phát hành B/L", [r"(shipped\s+on\s+board|on\s+board)\s+date", r"date\s+of\s+(b\s*/\s*l|issue)"]),
 }
@@ -134,12 +154,20 @@ DOC_HEADER_FIELDS = {
     "DG_MANIFEST": ["vessel_name", "imo", "call_sign", "flag", "voyage_no", "port_of_loading", "port_of_discharge"],
     "CREW_EFFECTS": ["vessel_name", "imo", "call_sign", "flag", "voyage_no"],
     "SHIP_STORES": ["vessel_name", "imo", "call_sign", "flag", "voyage_no", "port_of_arrival", "crew_count", "passenger_count"],
+    "SHIP_SECURITY": ["vessel_name", "imo", "call_sign", "flag", "voyage_no", "port_of_arrival", "eta", "issc_issuer", "issc_issue_date",
+                      "issc_expiry", "security_level", "latitude", "longitude", "purpose_of_call"],
+    "HEALTH_DECLARATION": ["vessel_name", "imo", "call_sign", "flag", "voyage_no", "port_of_arrival", "last_port", "next_port", "crew_count",
+                           "passenger_count", "master_name"],
+    "PLANT_DECLARATION": ["vessel_name", "imo", "call_sign", "flag", "voyage_no", "port_of_loading", "next_port"],
+    "ANIMAL_DECLARATION": ["vessel_name", "imo", "call_sign", "flag", "voyage_no", "next_port"],
+    "EMPTY_CONTAINER_LIST": ["vessel_name", "imo", "call_sign", "flag", "voyage_no", "port_of_discharge"],
     "OTHER": ["vessel_name", "imo", "call_sign", "flag", "voyage_no"],
 }
 BL_HEADER_FIELDS = ["bl_no", "shipper", "consignee", "notify", "port_of_loading", "port_of_discharge", "place_of_delivery",
                     "description", "packages", "gross_weight", "net_weight", "measurement", "date_of_bl", "container_type"]
 MULTILINE_PARTY = {"shipper", "consignee", "notify"}
-DATE_FIELDS = {"eta", "etd", "date_of_issue", "date_of_bl", "dob", "passport_expiry", "seaman_book_expiry"}
+DATE_FIELDS = {"eta", "etd", "date_of_issue", "date_of_bl", "dob", "passport_expiry", "seaman_book_expiry", "issc_issue_date", "issc_expiry",
+               "arrival", "departure"}
 
 
 # ------------------------------------------------------------------ table specs
@@ -201,7 +229,25 @@ T = {
         "packages": [r"(no\.?|number)\s+of\s+packages", r"^packages?$", r"^q(uan)?ty"],
         "package_kind": [r"kind\s+of\s+packages?", r"package\s+type"],
         "gross_weight": [r"gross", r"weight", r"mass"], "stowage": [r"stowage", r"position"],
+        "transporter": [r"transporter", r"carrier", r"shipping\s+line", r"^operator", r"cty\s+v[aậ]n\s+chuy[eể]n"],
         "_required": ["un_no", "imdg_class|proper_shipping_name"],
+    },
+    "empty_container": {
+        "seq": [r"^no\.?$", r"^stt$"],
+        "bl_no": [r"b\s*/\s*l", r"booking", r"bill\s+of\s+lading", r"v[aậ]n\s+[dđ][oơ]n"],
+        "container_no": [r"container\s*(no|number)?", r"\bcntr", r"s[oố]\s+(hi[eệ]u\s+)?cont"],
+        "container_type": [r"cont(ainer)?\.?\s*type", r"size\s*/?\s*type", r"^size$", r"^type$", r"lo[aạ]i\s+cont"],
+        "pod": [r"port\s+of\s+discharge", r"^pod$", r"discharg", r"c[aả]ng\s+d[oỡ]"],
+        "_required": ["container_no", "bl_no|container_type|pod"],
+    },
+    "port_calls": {
+        "seq": [r"^no\.?$", r"^stt$"],
+        "port_code": [r"locode", r"port\s*code", r"m[aã]\s+c[aả]ng"],
+        "port_name": [r"^port(\s+(of\s+call|name))?$", r"port\s+of\s+call", r"port\s+name", r"t[eê]n\s+c[aả]ng", r"^port\b"],
+        "arrival": [r"arriv", r"ng[aà]y\s+[dđ][eế]n"],
+        "departure": [r"depart", r"ng[aà]y\s+[dđ]i"],
+        "security_level": [r"security\s+level", r"^level$", r"c[aấ]p\s+[dđ][oộ]"],
+        "_required": ["port_name|port_code", "arrival|departure"],
     },
     "store": {
         "seq": [r"^no\.?$", r"^stt$"],
@@ -224,6 +270,7 @@ T = {
 DOC_TABLES = {
     "CREW_LIST": ["crew"], "PASSENGER_LIST": ["passenger"], "CARGO_MANIFEST": ["cargo"], "BILL_OF_LADING": ["cargo"],
     "DG_MANIFEST": ["dg"], "SHIP_STORES": ["store"], "CREW_EFFECTS": ["effects"],
+    "EMPTY_CONTAINER_LIST": ["empty_container"], "SHIP_SECURITY": ["port_calls"],
 }
 FIELD_LABELS = {
     "seq": "STT", "family_name": "Họ / Family name", "given_name": "Tên / Given name", "full_name": "Họ tên / Full name",
@@ -235,6 +282,8 @@ FIELD_LABELS = {
     "hs_code": "HS code", "un_no": "UN No.", "imdg_class": "IMDG Class", "proper_shipping_name": "Proper shipping name",
     "packing_group": "Packing group", "subsidiary_risk": "Subsidiary risk", "flash_point": "Flash point",
     "marine_pollutant": "Marine pollutant", "stowage": "Vị trí xếp", "article": "Tên vật phẩm", "quantity": "Số lượng",
+    "transporter": "Cty vận chuyển / Transporter", "port_code": "Mã cảng", "port_name": "Tên cảng", "arrival": "Ngày đến",
+    "departure": "Ngày đi", "security_level": "Cấp độ an ninh", "issc_issuer": "Cơ quan cấp ISSC",
     "unit": "Đơn vị", "gross_weight_unit": "Đơn vị trọng lượng (từ tiêu đề cột)", "measurement_unit": "Đơn vị thể tích (từ tiêu đề cột)",
     "net_weight_unit": "Đơn vị trọng lượng tịnh", "location": "Vị trí trên tàu", "official_use": "Sử dụng trên tàu", "effects": "Hành lý / Effects",
 }
@@ -592,7 +641,7 @@ def extract_document(doc_type, pages):
         recs = extract_table(pages, section)
         if not recs and section == "cargo":
             recs = extract_block_manifest(pages)
-        prefix = {"cargo": "mf"}.get(section, section)
+        prefix = {"cargo": "mf", "empty_container": "ec", "port_calls": "port"}.get(section, section)
         for i, r in enumerate(recs, start=1):
             for k, d in r["fields"].items():
                 out.append(dict(section=section, record_key=f"{prefix}:{i}", record_index=i, field_key=k, **d))
@@ -601,3 +650,26 @@ def extract_document(doc_type, pages):
         f["value"] = normalise_field(f["field_key"], f["original_value"])
         f["field_label"] = FIELD_LABELS.get(f["field_key"], f["field_key"])
     return out
+
+
+NUMBER_FIELDS = {"packages", "gross_weight", "net_weight", "measurement", "quantity", "gross_tonnage", "net_tonnage", "dwt", "loa",
+                 "crew_count", "passenger_count", "draft_fwd", "draft_aft", "air_draft", "rob_do", "rob_fo", "rob_fw", "seq"}
+ID_FIELDS = {"imo", "call_sign", "voyage_no", "bl_no", "container_no", "seal_no", "passport_no", "seaman_book_no", "un_no",
+             "certificate_no", "hs_code", "port_code"}
+CODE_FIELDS = {"container_type", "imdg_class", "packing_group", "gender", "security_level", "package_kind"}
+
+
+def field_meta(key, original):
+    """(data_type, unit) of a field - stored with every extracted value."""
+    if key.endswith("_unit"):
+        return "unit", None
+    if key in DATE_FIELDS:
+        return "date", None
+    if key in NUMBER_FIELDS:
+        _, u = N.parse_number(original)
+        return "number", (u or None)
+    if key in ID_FIELDS:
+        return "identifier", None
+    if key in CODE_FIELDS:
+        return "code", None
+    return "text", None

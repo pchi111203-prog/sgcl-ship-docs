@@ -47,7 +47,7 @@ export default function Review() {
   }, [data])
   if (!data) return <><VoyageHeader voyage={voyage} current="review" /><div className="empty"><Spinner /></div></>
   const all = data.fields
-  const unconf = all.filter((f) => f.status !== 'CONFIRMED')
+  const unconf = all.filter((f) => f.status !== 'CONFIRMED' && f.status !== 'EXCLUDED')
   const sec = SECTIONS.find((s) => s.key === tab)
   const fields = (bySection[tab] || [])
   const visible = onlyOpen ? fields.filter((f) => f.status !== 'CONFIRMED' || f.flags.length || f.low_confidence) : fields
@@ -83,11 +83,11 @@ export default function Review() {
           <div className="row">
             {tab !== 'vessel' && <button className="btn sm" onClick={() => setAdding(true)}>+ Thêm dòng nhập tay</button>}
             <button className="btn sm" onClick={() => confirm(fields.filter((f) => f.status === 'CONFIRMED').map((f) => f.id), false)}>Bỏ xác nhận nhóm</button>
-            <button className="btn sm primary" onClick={() => confirm(fields.filter((f) => f.status !== 'CONFIRMED').map((f) => f.id))}>Xác nhận cả nhóm</button>
+            <button className="btn sm primary" onClick={() => confirm(fields.filter((f) => f.status !== 'CONFIRMED' && f.status !== 'EXCLUDED').map((f) => f.id))}>Xác nhận cả nhóm</button>
           </div>
         </div>
         {fields.length === 0 ? <div className="empty">Không có dữ liệu cho nhóm này (Not Available in Source). {tab !== 'vessel' && 'Có thể thêm dòng nhập tay nếu chứng từ có nhưng hệ thống không đọc được.'}</div>
-          : tab === 'vessel' ? <VesselTable fields={visible} save={save} confirm={confirm} /> : <RecordTable fields={visible} cols={sec.cols} always={sec.always} labels={data.labels} save={save} confirm={confirm} reload={() => { load(); reload() }} voyageId={id} />}
+          : tab === 'vessel' ? <><VesselSummary voyageId={id} reload={reload} /><VesselTable fields={visible.filter((f) => f.status !== 'EXCLUDED')} save={save} confirm={confirm} /></> : <RecordTable fields={visible} cols={sec.cols} always={sec.always} labels={data.labels} save={save} confirm={confirm} reload={() => { load(); reload() }} voyageId={id} />}
       </div>
       {adding && <AddRecord section={sec} labels={data.labels} voyageId={id} onClose={() => setAdding(false)} onDone={() => { setAdding(false); load(); reload() }} />}
       {showLog && <LogModal voyageId={id} onClose={() => setShowLog(false)} />}
@@ -176,13 +176,31 @@ function RecordTable({ fields, cols, always = [], labels, save, confirm, reload,
     if (!window.confirm('Xóa dòng nhập tay này?')) return
     await api(`/api/fields/${Object.values(r.f)[0].id}`, { method: 'DELETE' }); reload()
   }
+  const toast = useToast()
+  const excludeRec = async (rec, exclude) => {
+    const reason = exclude ? window.prompt('Lý do loại bỏ bản ghi này khỏi khai báo (VD: dòng tổng cộng, dòng đọc nhầm):') : 'Khôi phục'
+    if (exclude && !reason) return
+    try {
+      await api(`/api/voyages/${voyageId}/records/exclude`, { method: 'POST', body: { document_id: rec.docId, section: Object.values(rec.f)[0].section, record_key: rec.recordKey, exclude, reason } })
+      toast(exclude ? 'Đã loại bỏ bản ghi (vẫn lưu giá trị gốc)' : 'Đã khôi phục bản ghi – cần xác nhận lại'); reload()
+    } catch (e) { toast(e.message, 'err') }
+  }
   const rows = [...recs.values()]
   return (
     <div className="scroll"><table className="t">
       <thead><tr><th>#</th><th>Nguồn</th>{shownCols.map((c) => <th key={c}>{labels[c] || c}</th>)}<th>Trạng thái</th><th /></tr></thead>
       <tbody>{rows.map((r, i) => {
         const fs = Object.values(r.f)
+        const excluded = fs.every((f) => f.status === 'EXCLUDED')
         const done = fs.every((f) => f.status === 'CONFIRMED')
+        if (excluded) return (
+          <tr key={r.key} style={{ opacity: 0.55 }}>
+            <td className="small muted">{i + 1}</td>
+            <td className="small">{r.doc}{r.page ? <div className="muted">trang {r.page}</div> : null}</td>
+            <td colSpan={shownCols.length} className="small muted">Bản ghi đã loại bỏ khỏi khai báo: {fs.slice(0, 4).map((f) => f.value).filter(Boolean).join(' · ')}</td>
+            <td><span className="badge b-gray">Đã loại bỏ</span></td>
+            <td className="right"><button className="btn sm" onClick={() => excludeRec(r, false)}>Khôi phục</button></td>
+          </tr>)
         return (
           <tr key={r.key}>
             <td className="small muted">{i + 1}</td>
@@ -191,7 +209,8 @@ function RecordTable({ fields, cols, always = [], labels, save, confirm, reload,
             <td>{done ? <span className="badge b-green">Đã xác nhận</span> : <span className="badge b-gray">Chưa</span>}{fs.some((f) => f.flags.some((x) => BAD.includes(x))) && <div><span className="badge b-red">Sai lệch</span></div>}</td>
             <td className="right" style={{ whiteSpace: 'nowrap' }}>{done ? <button className="btn sm ghost" onClick={() => confirm(fs.map((f) => f.id), false)}>Bỏ</button>
               : <button className="btn sm" onClick={() => confirm(fs.filter((f) => f.status !== 'CONFIRMED').map((f) => f.id))}>✓ Xác nhận dòng</button>}
-              {r.manual && <> <button className="btn sm danger" onClick={() => delManual(r)}>Xóa</button></>}</td>
+              {r.manual ? <> <button className="btn sm danger" onClick={() => delManual(r)}>Xóa</button></>
+                : <> <button className="btn sm ghost" title="Loại bản ghi này khỏi khai báo (VD dòng tổng cộng, dòng đọc nhầm). Dữ liệu gốc vẫn được giữ." onClick={() => excludeRec(r, true)}>Loại bỏ</button></>}</td>
           </tr>)
       })}</tbody>
     </table></div>
@@ -228,5 +247,45 @@ export function LogModal({ voyageId, onClose }) {
           <td className="small wrap-any orig" style={{ textDecoration: l.old_value ? 'line-through' : 'none' }}>{l.old_value}</td><td className="small wrap-any">{l.new_value}</td><td className="small wrap-any">{l.reason}</td></tr>)}</tbody>
       </table></div>}
     </Modal>
+  )
+}
+
+const SUM_STATUS = { same: ['Thống nhất', 'b-green'], conflict: ['Mâu thuẫn', 'b-red'], single: ['Chỉ 1 nguồn', 'b-amber'], none: ['Not Available in Source', 'b-gray'] }
+
+function VesselSummary({ voyageId, reload }) {
+  const [rows, setRows] = useState(null)
+  const toast = useToast()
+  const load = useCallback(() => api(`/api/voyages/${voyageId}/profile-suggestions`).then(setRows), [voyageId])
+  useEffect(() => { load() }, [load])
+  if (!rows) return null
+  const status = (r) => r.conflict ? 'conflict' : !r.sources.length ? 'none' : new Set(r.sources.map((s) => s.original_name)).size > 1 ? 'same' : 'single'
+  const apply = async () => {
+    const v = await api(`/api/voyages/${voyageId}`)
+    const body = { ...v }
+    const changes = rows.filter((r) => r.applicable && r.value && !r.conflict && (v[r.key] || '') !== r.value)
+    if (!changes.length) { toast('Hồ sơ chuyến đã khớp với thông tin tổng hợp'); return }
+    if (!window.confirm('Cập nhật hồ sơ chuyến với các giá trị thống nhất:\n' + changes.map((r) => `• ${r.label}: ${r.current || '(trống)'} → ${r.value}`).join('\n'))) return
+    for (const r of changes) body[r.key] = r.value
+    try { await api(`/api/voyages/${voyageId}`, { method: 'PUT', body }); toast('Đã cập nhật hồ sơ chuyến'); load(); reload() } catch (e) { toast(e.message, 'err') }
+  }
+  return (
+    <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)', background: '#fbfdfd' }}>
+      <div className="row" style={{ marginBottom: 8 }}>
+        <h3 style={{ margin: 0 }}>Thông tin tàu tổng hợp</h3>
+        <span className="small muted">từ General Declaration · Notice of Arrival · Tonnage Certificate – hệ thống không tự chọn khi các nguồn mâu thuẫn</span>
+        <div className="spacer" />
+        <button className="btn sm" onClick={apply}>Cập nhật hồ sơ chuyến từ giá trị thống nhất</button>
+      </div>
+      <table className="t"><thead><tr><th>Thông tin</th><th>Giá trị tổng hợp</th><th>Theo từng chứng từ</th><th>Trạng thái</th><th>Hồ sơ chuyến hiện tại</th></tr></thead><tbody>
+        {rows.map((r) => {
+          const st = status(r)
+          return <tr key={r.key}><td>{r.label}</td><td className="mono">{r.value || <span className="faint">—</span>}</td>
+            <td className="small">{r.sources.map((s, i) => <div key={i}><span className="mono">{s.value}</span> <span className="muted">· {s.original_name} tr.{s.page_no}</span></div>)}</td>
+            <td><Badge map={SUM_STATUS} value={st} /></td>
+            <td className="small">{r.applicable ? (r.current || <span className="faint">(trống)</span>) : <span className="faint">không lưu ở hồ sơ chuyến</span>}
+              {r.applicable && r.current && r.value && r.current.toUpperCase() !== r.value.toUpperCase() && <div><span className="badge b-amber">khác hồ sơ</span></div>}</td></tr>
+        })}
+      </tbody></table>
+    </div>
   )
 }

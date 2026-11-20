@@ -24,7 +24,8 @@ GROUP_CARGO = "2. Hàng hóa (Manifest ↔ B/L)"
 GROUP_CREW = "3. Thuyền viên"
 GROUP_DG = "4. Hàng nguy hiểm"
 GROUP_DOC = "0. Chứng từ / chuyến tàu"
-GROUP_QUALITY = "5. Chất lượng trích xuất"
+GROUP_QUALITY = "7. Chất lượng trích xuất"
+GROUP_CONT = "5. Container"
 
 BLOCKING = {"MISMATCH", "DUPLICATE", "WRONG_VOYAGE"}
 
@@ -115,7 +116,7 @@ class Ctx:
         self.conn = conn
         self.voyage = db.row(conn, "SELECT * FROM voyages WHERE id=?", (voyage_id,))
         self.docs = {d["id"]: d for d in db.rows(conn, "SELECT * FROM documents WHERE voyage_id=?", (voyage_id,))}
-        self.fields = db.rows(conn, "SELECT * FROM extracted_fields WHERE voyage_id=?", (voyage_id,))
+        self.fields = db.rows(conn, "SELECT * FROM extracted_fields WHERE voyage_id=? AND status!='EXCLUDED'", (voyage_id,))
         self.results = []
         self.acks = {(a["check_key"], a["value1"] or "", a["value2"] or ""): a for a in
                      db.rows(conn, "SELECT * FROM crosscheck_acks WHERE voyage_id=?", (voyage_id,))}
@@ -184,12 +185,44 @@ def check_vessel(c: Ctx):
             c.add(GROUP_VESSEL, "PASSED", f"{label} thống nhất giữa {len(vals)} chứng từ.", key, "header", f1=base, f2=vals[1])
 
 
+IDENTITY_DOCS = {"GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "TONNAGE_CERTIFICATE", "CARGO_MANIFEST", "BILL_OF_LADING", "CREW_LIST",
+                 "DG_MANIFEST", "PASSENGER_LIST", "SHIP_SECURITY", "EMPTY_CONTAINER_LIST"}
+
+
+def check_mixed_vessels(c: Ctx):
+    """Several different vessels (name / IMO) inside one document set -> documents of several voyages mixed."""
+    for key, label in (("imo", "số IMO"), ("vessel_name", "tên tàu")):
+        groups = defaultdict(list)
+        for f in c.header(key):
+            d = c.docs.get(f["document_id"])
+            if d and not d.get("voyage_confirmed"):
+                groups[N.norm_id(f["value"]) if key == "imo" else N.norm_text(f["value"])].append(f)
+        if len(groups) > 1:
+            detail = "; ".join(f"'{fs[0]['value']}': " + ", ".join(sorted({c.doc_name(x['document_id']) for x in fs})) for fs in groups.values())
+            c.add(GROUP_DOC, "WRONG_VOYAGE", f"Bộ chứng từ có {len(groups)} {label} khác nhau - nghi trộn lẫn chứng từ của nhiều chuyến tàu. {detail}",
+                  key, "header", check_key=f"mixed|{key}|" + "|".join(sorted(groups)),
+                  suggestion="Kiểm tra từng chứng từ: xác nhận đúng hồ sơ, chuyển sang chuyến khác hoặc xóa.")
+            return
+
+
+def check_identity_available(c: Ctx):
+    for doc_id, d in c.docs.items():
+        if d["status"] != "EXTRACTED" or d["doc_type"] not in IDENTITY_DOCS or d.get("voyage_confirmed"):
+            continue
+        if not any(f["document_id"] == doc_id for k in ("vessel_name", "imo", "voyage_no") for f in c.header(k)):
+            c.add(GROUP_DOC, "NEEDS_REVIEW", f"Needs Manual Review: '{d['original_name']}' không ghi tên tàu / IMO / số chuyến đọc được - "
+                  "chưa xác định được chứng từ có thuộc chuyến này không.", doc1=d["id"], blocking=False,
+                  suggestion="Kiểm tra bản gốc rồi bấm 'Xác nhận đúng hồ sơ' ở màn hình Xử lý chứng từ.")
+
+
 def check_wrong_voyage(c: Ctx):
     v = c.voyage
     ref = {"vessel_name": v.get("vessel_name"), "imo": v.get("imo"), "voyage_no": v.get("voyage_no")}
     # if the voyage record is empty, use the General Declaration as reference
     gd = {k: (c.header(k, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL"]) or [None])[0] for k in ref}
     for doc_id, d in c.docs.items():
+        if d.get("voyage_confirmed"):
+            continue  # staff checked the original and confirmed it belongs to this voyage
         for key, cmp in (("vessel_name", _cmp_text), ("imo", _cmp_id), ("voyage_no", _cmp_id)):
             fs = [f for f in c.header(key) if f["document_id"] == doc_id]
             if not fs:
@@ -212,8 +245,8 @@ def check_wrong_voyage(c: Ctx):
                       f1=f, f2=f2, v2=None if f2 else refv, suggestion="Xác nhận đây là cùng chuyến.")
                 continue
             c.add(GROUP_DOC, "WRONG_VOYAGE", f"'{d['original_name']}' ghi {FIELD_LABELS[key]} = '{f['value']}', khác {src} ('{refv}'). "
-                  "Có dấu hiệu chứng từ thuộc tàu/chuyến khác.", key, "header", f1=f, f2=f2, v2=None if f2 else refv,
-                  suggestion="Kiểm tra lại chứng từ. Nếu tải nhầm, xóa chứng từ khỏi chuyến tàu này.")
+                  "Possible Wrong Voyage Document - dữ liệu của chứng từ này tạm không đưa vào file Excel.", key, "header", f1=f, f2=f2, v2=None if f2 else refv,
+                  suggestion="Kiểm tra bản gốc: xác nhận đúng hồ sơ, chuyển sang chuyến khác hoặc xóa chứng từ.")
 
 
 def _cargo_cmp(kind, a, b):
@@ -438,6 +471,57 @@ def check_dg(c: Ctx):
                 c.add(GROUP_DG, "MISMATCH", f"B/L {blf['value']} - {lbl} khác nhau giữa DG Manifest và Cargo Manifest/B/L.", key, rk, f1=df, f2=mf)
 
 
+def check_containers(c: Ctx):
+    """E. Containers across Cargo Manifest, B/L, Empty Container List and DG Manifest (key = container number)."""
+    laden = defaultdict(set)   # container -> set of B/L numbers on the manifest / B/Ls
+    where = {}
+    for sec, types in (("cargo", ["CARGO_MANIFEST", "BILL_OF_LADING", "MANUAL"]),):
+        for (doc_id, rk), r in c.records(sec, types).items():
+            f = r.get("container_no")
+            if not f:
+                continue
+            for cn in re.split(r"[,;\s]+", f["value"] or ""):
+                cn = N.norm_id(cn)
+                if cn:
+                    laden[cn].add(N.norm_id((r.get("bl_no") or {}).get("value")) or "?")
+                    where.setdefault(cn, f)
+    empty = {}
+    for (doc_id, rk), r in c.records("empty_container", ["EMPTY_CONTAINER_LIST", "MANUAL"]).items():
+        f = r.get("container_no")
+        if f and f["value"]:
+            cn = N.norm_id(f["value"])
+            if cn in empty:
+                c.add(GROUP_CONT, "DUPLICATE", f"Container rỗng {cn} xuất hiện 2 lần trong danh sách container rỗng.", "container_no", rk,
+                      f1=empty[cn], f2=f)
+            empty[cn] = f
+            if not N.container_valid(cn):
+                c.add(GROUP_CONT, "NEEDS_REVIEW", f"Số container rỗng '{cn}' không đúng chuẩn ISO 6346.", "container_no", rk, f1=f)
+    if not laden and not empty:
+        c.add(GROUP_CONT, "NOT_AVAILABLE", "Bộ chứng từ không có số container (hàng rời / chưa tải manifest) - Not Available in Source.")
+        return
+    issues = 0
+    for cn, bls in laden.items():
+        manifest_bls = {b for b in bls if b != "?"}
+        if len(manifest_bls) > 1:
+            issues += 1
+            c.add(GROUP_CONT, "NEEDS_REVIEW", f"Container {cn} khai cho {len(manifest_bls)} vận đơn ({', '.join(sorted(manifest_bls))}) - "
+                  "kiểm tra hàng ghép (LCL) hay khai trùng.", "container_no", None, f1=where[cn], blocking=False)
+        if cn in empty:
+            issues += 1
+            c.add(GROUP_CONT, "MISMATCH", f"Container {cn} vừa có trong danh sách container RỖNG vừa có hàng trên Manifest/B/L.",
+                  "container_no", None, f1=empty[cn], f2=where[cn])
+    dg = c.records("dg", ["DG_MANIFEST"])
+    for (doc_id, rk), r in dg.items():
+        f = r.get("container_no")
+        if f and laden and N.norm_id(f["value"]) not in laden:
+            issues += 1
+            c.add(GROUP_CONT, "MISMATCH", f"Container {f['value']} trên DG Manifest không có trong Cargo Manifest/B/L.", "container_no", rk, f1=f, v2="")
+    if not issues:
+        c.add(GROUP_CONT, "PASSED" if (laden and (empty or dg)) else "NOT_ENOUGH_DATA",
+              f"{len(laden)} container có hàng, {len(empty)} container rỗng: không trùng giữa hàng/rỗng, không lệch giữa DG và Manifest."
+              + ("" if (laden and (empty or dg)) else " (chỉ có 1 nguồn container - Not Enough Data để đối chiếu chéo)"), blocking=False)
+
+
 def check_documents(c: Ctx):
     hashes = defaultdict(list)
     for d in c.docs.values():
@@ -463,11 +547,14 @@ def check_quality(c: Ctx):
 def run(conn, voyage_id, user):
     c = Ctx(conn, voyage_id)
     check_documents(c)
+    check_mixed_vessels(c)
+    check_identity_available(c)
     check_wrong_voyage(c)
     check_vessel(c)
     check_cargo(c)
     check_crew(c)
     check_dg(c)
+    check_containers(c)
     check_quality(c)
     summary = defaultdict(int)
     for r in c.results:

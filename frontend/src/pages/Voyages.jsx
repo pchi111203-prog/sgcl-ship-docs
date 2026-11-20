@@ -21,7 +21,7 @@ export function VoyageList({ user }) {
   return (
     <>
       <div className="page-head">
-        <div><h1>Quản lý chuyến tàu</h1><p>Mỗi chuyến tàu được quản lý độc lập theo Mã chuyến (Voyage ID), không dùng tên tàu làm khóa.</p></div>
+        <div><h1>Quản lý chuyến tàu</h1><p>Mỗi chuyến tàu là một hồ sơ độc lập theo Mã chuyến (Voyage ID). Hồ sơ mới tạo là <b>hồ sơ nháp</b> cho tới khi tải chứng từ. Hệ thống cảnh báo khi trùng IMO/tên tàu + số chuyến + cảng đến + ETA.</p></div>
         <Link to="/voyages/new" className="btn primary">+ Tạo chuyến tàu mới</Link>
       </div>
       <div className="card tight">
@@ -82,7 +82,15 @@ export function VoyageForm() {
     setBusy(true)
     const body = { ...f, vessel_profile_id: f.vessel_profile_id || null }
     try {
-      const v = id ? await api(`/api/voyages/${id}`, { method: 'PUT', body }) : await api('/api/voyages', { method: 'POST', body })
+      let v
+      try {
+        v = id ? await api(`/api/voyages/${id}`, { method: 'PUT', body }) : await api('/api/voyages', { method: 'POST', body })
+      } catch (ex) {
+        if (ex.status !== 409 || !ex.detail?.duplicate_id) throw ex
+        if (window.confirm(`${ex.detail.message}\n\nOK = vẫn tạo hồ sơ MỚI (chuyến khác)\nCancel = mở hồ sơ ${ex.detail.duplicate_code}`)) {
+          v = await api('/api/voyages', { method: 'POST', body: { ...body, allow_duplicate: true } })
+        } else { nav(`/voyages/${ex.detail.duplicate_id}/documents`); return }
+      }
       toast(id ? 'Đã lưu thông tin chuyến tàu' : `Đã tạo chuyến ${v.voyage_code}`)
       nav(`/voyages/${v.id}/documents`)
     } catch (ex) { toast(ex.message, 'err') } finally { setBusy(false) }

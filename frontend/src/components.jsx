@@ -4,7 +4,7 @@ import { api } from './api'
 
 /* ---------------------------------------------------------------- labels */
 export const VOYAGE_STATUS = {
-  NEW: ['Mới tạo', 'b-gray'], PROCESSING: ['Đang xử lý', 'b-blue'], IN_REVIEW: ['Cần kiểm tra', 'b-amber'],
+  NEW: ['Hồ sơ nháp', 'b-gray'], PROCESSING: ['Đang xử lý', 'b-blue'], IN_REVIEW: ['Cần kiểm tra', 'b-amber'],
   READY: ['Sẵn sàng xuất', 'b-green'], EXPORTED: ['Đã xuất Excel', 'b-teal'],
 }
 export const DOC_STATUS = {
@@ -13,10 +13,10 @@ export const DOC_STATUS = {
 export const CHECK_STATUS = {
   PASSED: ['Passed – Phù hợp', 'b-green'], MISMATCH: ['Mismatch – Sai lệch', 'b-red'], MISSING_INFO: ['Missing Information – Thiếu', 'b-amber'],
   NEEDS_REVIEW: ['Needs Review – Cần kiểm tra', 'b-amber'], DUPLICATE: ['Duplicate – Trùng lặp', 'b-red'],
-  LOW_CONFIDENCE: ['Low Confidence – Tin cậy thấp', 'b-amber'], WRONG_VOYAGE: ['Wrong Voyage Document', 'b-red'],
+  LOW_CONFIDENCE: ['Low Confidence – Tin cậy thấp', 'b-amber'], WRONG_VOYAGE: ['Possible Wrong Voyage Document', 'b-red'],
   NOT_AVAILABLE: ['Not Available in Source', 'b-gray'], NOT_ENOUGH_DATA: ['Not Enough Data', 'b-gray'],
 }
-export const FIELD_STATUS = { EXTRACTED: ['Chưa xác nhận', 'b-gray'], EDITED: ['Đã sửa – chưa xác nhận', 'b-amber'], CONFIRMED: ['Đã xác nhận', 'b-green'] }
+export const FIELD_STATUS = { EXTRACTED: ['Chưa xác nhận', 'b-gray'], EDITED: ['Đã sửa – chưa xác nhận', 'b-amber'], CONFIRMED: ['Đã xác nhận', 'b-green'], EXCLUDED: ['Đã loại bỏ', 'b-gray'] }
 
 export function Badge({ map, value, children }) {
   const [label, cls] = (map && map[value]) || [value, 'b-gray']
@@ -80,6 +80,9 @@ export function useVoyage(poll = 0) {
   return { id, voyage, reload: load, err }
 }
 
+const STEP_EN = { upload: 'Uploaded', classify: 'Classified', extract: 'Extracted', check: 'Cross-checked', review: 'Reviewed',
+  ready: 'Ready to Export', export: 'Exported' }
+
 export function VoyageHeader({ voyage, current }) {
   if (!voyage) return null
   const p = voyage.progress
@@ -104,6 +107,12 @@ export function VoyageHeader({ voyage, current }) {
             title={stepDone[s.key] ? 'Đã hoàn thành' : p.steps.find((x) => x.key === s.key)?.why}>
             <span className="dot">{stepDone[s.key] ? '✓' : i + 1}</span>{s.label}
           </Link>
+        ))}
+      </div>
+      <div className="row small" style={{ gap: 6, margin: '-8px 0 14px' }}>
+        <span className="muted">Trạng thái:</span>
+        {p.steps.filter((s) => s.key !== 'create').map((s) => (
+          <span key={s.key} className={`badge ${s.done ? 'b-teal' : 'b-gray'}`} title={s.done ? 'Đã hoàn thành' : s.why}>{s.done ? '✓ ' : ''}{STEP_EN[s.key] || s.label}</span>
         ))}
       </div>
       {p.progress < 100 && p.steps.some((s) => !s.done && s.key !== 'export') && (
