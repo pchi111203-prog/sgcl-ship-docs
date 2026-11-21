@@ -109,14 +109,24 @@ export default function Documents() {
             <Link className="btn primary" to={`/voyages/${id}/crosscheck`}>Tiếp: Đối chiếu dữ liệu →</Link></div>
         </div>
         {!docs ? <div className="empty"><Spinner /></div> : docs.length === 0 ? <div className="empty">Chưa có chứng từ. Tải lên bộ chứng từ của chuyến tàu ở trên.</div> : (
-          <table className="t">
-            <thead><tr><th>Tên file</th><th>Định dạng</th><th>Dung lượng</th><th style={{ width: 290 }}>Loại chứng từ</th><th>Trạng thái</th><th>Trang · Phương pháp</th><th>Dữ liệu</th><th /></tr></thead>
+          <div style={{ overflowX: 'auto' }}><table className="t">
+            <thead><tr><th>Tên file</th><th style={{ width: 220 }}>Loại chứng từ</th><th>Trạng thái</th><th>Trang · Dữ liệu</th></tr></thead>
             <tbody>
               {docs.map((d) => (
                 <tr key={d.id}>
-                  <td className="wrap-any" style={{ minWidth: 180, paddingLeft: d.parent_id ? 28 : undefined }}>{d.parent_id ? <span className="muted">↳ </span> : null}<b>{d.original_name}</b><div className="small muted">{d.uploaded_at}</div></td>
-                  <td><span className="badge b-gray">{(d.ext || '').replace('.', '').toUpperCase()}</span></td>
-                  <td className="small">{fmtSize(d.size)}</td>
+                  <td className="wrap-any" style={{ minWidth: 240, paddingLeft: d.parent_id ? 28 : undefined }}>{d.parent_id ? <span className="muted">↳ </span> : null}<b>{d.original_name}</b><div className="small muted"><span className="badge b-gray" style={{ marginRight: 6 }}>{(d.ext || '').replace('.', '').toUpperCase()}</span>{fmtSize(d.size)} · {d.uploaded_at}</div>
+                  <div style={{ marginTop: 6 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-start' }}>
+                    <button className="btn sm" onClick={() => setView(d)}>Xem</button>
+                    <button className="btn sm" onClick={() => reprocess(d)} disabled={d.status === 'PROCESSING'} title="Đọc lại file từ đầu (dữ liệu đã sửa/xác nhận của file này sẽ bị thay thế)">Xử lý lại</button>
+                    {!d.parent_id && <button className="btn sm" onClick={() => replace(d)}>Thay file</button>}
+                    <button className="btn sm danger" onClick={() => del(d)}>Xóa</button>
+                    {(d.suspect > 0 || d.status === 'EXTRACTED') && <button className="btn sm ghost" onClick={() => setMoving(d)} title="Chuyển chứng từ sang chuyến tàu khác">Chuyển chuyến…</button>}
+                    </div>
+                    {d.status === 'SPLIT' && <div style={{ marginTop: 4 }}><button className="btn sm ghost" onClick={() => setSplit(d, false)} title="Xử lý cả file như một chứng từ">Hủy tách</button></div>}
+                    {!d.parent_id && d.split_disabled ? <div style={{ marginTop: 4 }}><button className="btn sm ghost" onClick={() => setSplit(d, true)} title="Cho phép tự tách nếu là file gộp">Tách file gộp</button></div> : null}
+                    {d.suspect > 0 && !d.voyage_confirmed && <div style={{ marginTop: 4 }}><button className="btn sm" onClick={() => confirmBelongs(d)}>Xác nhận đúng hồ sơ</button></div>}
+                  </div></td>
                   <td>{d.status === 'SPLIT' ? <div className="small"><b>File gộp nhiều chứng từ</b><div className="muted">{d.error}. Từng phần được nhận diện, trích xuất và đối chiếu riêng (bên dưới); số trang tính theo file gộp.</div></div> : <>
                     <select value={d.doc_type || ''} disabled={d.status === 'PROCESSING'} onChange={(e) => setType(d, e.target.value)}>
                       {!d.doc_type && <option value="">— chờ nhận diện —</option>}
@@ -132,25 +142,13 @@ export default function Documents() {
                     {d.suspect > 0 && !d.voyage_confirmed && <div><span className="badge b-red" style={{ marginTop: 4 }} title="Tên tàu / IMO / số chuyến khác hồ sơ - dữ liệu chưa đưa vào Excel">Nghi sai hồ sơ</span></div>}
                     {d.voyage_confirmed ? <div><span className="badge b-green" style={{ marginTop: 4 }} title={`Xác nhận bởi ${d.voyage_confirmed_by}`}>Đã xác nhận đúng hồ sơ</span></div> : null}
                     {d.error && d.status !== 'SPLIT' && <div className="small" style={{ color: d.status === 'ERROR' ? 'var(--red)' : 'var(--amber)', maxWidth: 260 }}>{d.error}</div>}</td>
-                  <td className="small">{d.page_count ?? '—'} trang<br /><span className="muted">{d.extraction_method || ''}</span>
-                    {d.avg_confidence != null && <> <Conf value={d.avg_confidence} method={d.extraction_method} /></>}</td>
-                  <td className="small">{d.n_fields} trường<br />{d.n_records ? <span className="muted">{d.n_records} dòng/bản ghi</span> : null}</td>
-                  <td className="right" style={{ whiteSpace: 'nowrap' }}>
-                    <button className="btn sm" onClick={() => setView(d)}>Xem</button>{' '}
-                    <button className="btn sm" onClick={() => reprocess(d)} disabled={d.status === 'PROCESSING'} title="Đọc lại file từ đầu (dữ liệu đã sửa/xác nhận của file này sẽ bị thay thế)">Xử lý lại</button>{' '}
-                    {!d.parent_id && <><button className="btn sm" onClick={() => replace(d)}>Thay file</button>{' '}</>}
-                    <button className="btn sm danger" onClick={() => del(d)}>Xóa</button>
-                    {d.status === 'SPLIT' && <div style={{ marginTop: 4 }}><button className="btn sm ghost" onClick={() => setSplit(d, false)} title="Xử lý cả file như một chứng từ">Hủy tách</button></div>}
-                    {!d.parent_id && d.split_disabled ? <div style={{ marginTop: 4 }}><button className="btn sm ghost" onClick={() => setSplit(d, true)} title="Cho phép tự tách nếu là file gộp">Tách file gộp</button></div> : null}
-                    {(d.suspect > 0 || d.status === 'EXTRACTED') && <div className="row" style={{ gap: 4, marginTop: 4, justifyContent: 'flex-end' }}>
-                      {d.suspect > 0 && !d.voyage_confirmed && <button className="btn sm" onClick={() => confirmBelongs(d)}>Xác nhận đúng hồ sơ</button>}
-                      <button className="btn sm ghost" onClick={() => setMoving(d)}>Chuyển sang chuyến khác…</button>
-                    </div>}
-                  </td>
+                  <td className="small" style={{ minWidth: 90 }}>{d.page_count ?? '—'} trang<div className="muted">{d.extraction_method || ''}</div>
+                    {d.avg_confidence != null && <> <Conf value={d.avg_confidence} method={d.extraction_method} /></>}
+                    <div style={{ marginTop: 3 }}>{d.n_fields} trường</div>{d.n_records ? <div className="muted">{d.n_records} dòng</div> : null}</td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
       </div>
       <div className="alert blue">Hệ thống nhận diện loại chứng từ theo <b>nội dung</b> (tiêu đề, từ khóa), không theo tên file. <b>File gộp</b> nhiều chứng từ (PDF/scan, Word, Excel) được tự tách theo tiêu đề từng chứng từ; bấm “Hủy tách” nếu không muốn tách. Nếu nhận diện sai, chọn lại loại ở cột “Loại chứng từ” – chứng từ sẽ được trích xuất lại theo loại mới.
