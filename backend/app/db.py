@@ -190,12 +190,6 @@ def init_db():
                                 ("documents", "split_disabled", "INTEGER NOT NULL DEFAULT 0")):
             if col not in [r[1] for r in c.execute(f"PRAGMA table_info({table})")]:
                 c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
-        # Forgotten password: the server owner sets SGCL_RESET_ADMIN_PASSWORD (e.g. in Railway Variables),
-        # restarts, logs in, then removes the variable. Only someone with access to the server can do this.
-        reset_pw = os.environ.get("SGCL_RESET_ADMIN_PASSWORD")
-        if reset_pw and c.execute("SELECT 1 FROM users WHERE username='admin'").fetchone():
-            c.execute("UPDATE users SET password_hash=? WHERE username='admin'", (hash_password(reset_pw),))
-            print("SGCL: mật khẩu tài khoản admin đã được đặt lại từ SGCL_RESET_ADMIN_PASSWORD - hãy xóa biến này sau khi đăng nhập.", flush=True)
         if not c.execute("SELECT 1 FROM users").fetchone():
             # First start: passwords come from environment variables; otherwise random ones are
             # generated, printed in the server log and saved to <data>/initial_credentials.txt.
