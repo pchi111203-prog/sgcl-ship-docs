@@ -9,7 +9,8 @@ Statuses:
   LOW_CONFIDENCE    extraction confidence below threshold
   WRONG_VOYAGE      document seems to belong to another vessel/voyage (blocking)
   NOT_AVAILABLE     "Not Available in Source" - no document contains the field
-  NOT_ENOUGH_DATA   "Not Enough Data" - only one source, nothing to compare with
+  SINGLE_SOURCE     the value exists in ONE document only: it is taken (and exported) but could not be cross-checked
+  NOT_ENOUGH_DATA   "Not Enough Data" - a whole document type needed for the comparison is missing
 The engine never decides which value is right; it reports both values with their sources.
 """
 import re
@@ -201,7 +202,8 @@ def check_vessel(c: Ctx):
                     c.add(GROUP_VESSEL, "NEEDS_REVIEW", f"IMO '{f['value']}' sai số kiểm tra (check digit) - có thể đọc sai hoặc ghi sai.", key, "header", f1=f,
                           suggestion="Đối chiếu với bản gốc chứng từ.")
         if len(vals) == 1:
-            c.add(GROUP_VESSEL, "NOT_ENOUGH_DATA", f"{label}: Not Enough Data - chỉ có trong 1 chứng từ, chưa đối chiếu được.", key, "header", f1=vals[0])
+            c.add(GROUP_VESSEL, "SINGLE_SOURCE", f"{label}: đã lấy dữ liệu từ {c.doc_name(vals[0]['document_id'])} - chỉ chứng từ này ghi, "
+                  "không có chứng từ thứ hai để so.", key, "header", f1=vals[0])
             continue
         base = vals[0]
         diff = False
@@ -373,7 +375,7 @@ def check_cargo(c: Ctx):
                 continue
             if not bf or not mvals:
                 src = "B/L" if not bf else "Manifest"
-                c.add(GROUP_CARGO, "NOT_ENOUGH_DATA", f"B/L {bl} - {label}: không có trên {src}, chưa đối chiếu được.", key, f"bl:{bl}",
+                c.add(GROUP_CARGO, "SINGLE_SOURCE", f"B/L {bl} - {label}: đã lấy dữ liệu từ {'Manifest' if src == 'B/L' else 'B/L'} ({src} không ghi).", key, f"bl:{bl}",
                       f1=bf or mvals[0], blocking=False)
                 continue
             if len(rows) > 1 and kind in ("number", "weight"):
@@ -411,7 +413,7 @@ def check_cargo(c: Ctx):
     if bls:
         for bl, rows in by_bl.items():
             if bl not in matched:
-                c.add(GROUP_CARGO, "NOT_ENOUGH_DATA", f"B/L {bl} có trong manifest nhưng chưa tải vận đơn - Not Enough Data.", "bl_no", f"bl:{bl}",
+                c.add(GROUP_CARGO, "SINGLE_SOURCE", f"B/L {bl}: đã lấy dữ liệu từ Cargo Manifest (chưa có vận đơn riêng để so).", "bl_no", f"bl:{bl}",
                       f1=rows[0]["bl_no"], blocking=False)
 
 
@@ -428,7 +430,7 @@ def check_crew(c: Ctx):
     n = len(recs)
     counts = c.header("crew_count", ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "CREW_LIST"])
     if not counts:
-        c.add(GROUP_CREW, "NOT_ENOUGH_DATA", f"Crew List có {n} người; GD/NOA không ghi số thuyền viên - chưa đối chiếu được số lượng.", "crew_count")
+        c.add(GROUP_CREW, "SINGLE_SOURCE", f"Đã lấy {n} thuyền viên từ Crew List; GD/NOA không ghi số thuyền viên nên không so được số lượng.", "crew_count")
     for f in counts:
         try:
             k = int(re.sub(r"\D", "", f["value"]))
@@ -470,7 +472,7 @@ def check_crew(c: Ctx):
                     if datetime.strptime(d[:10], "%d/%m/%Y") < datetime.strptime(eta_d[:10], "%d/%m/%Y"):
                         c.add(GROUP_CREW, "NEEDS_REVIEW", f"'{nm}' - hộ chiếu hết hạn ({d}) trước ETA ({eta_d}).", dk, rk, f1=f)
     if not any(r["status"] in ("MISMATCH", "DUPLICATE") for r in c.results if r["group_name"] == GROUP_CREW):
-        c.add(GROUP_CREW, "PASSED" if counts else "NOT_ENOUGH_DATA", f"Đã kiểm tra {n} thuyền viên: không phát hiện trùng lặp.", blocking=False)
+        c.add(GROUP_CREW, "PASSED", f"Đã kiểm tra {n} thuyền viên: không phát hiện trùng lặp.", blocking=False)
 
 
 def check_dg(c: Ctx):
@@ -568,9 +570,9 @@ def check_containers(c: Ctx):
             issues += 1
             c.add(GROUP_CONT, "MISMATCH", f"Container {f['value']} trên DG Manifest không có trong Cargo Manifest/B/L.", "container_no", rk, f1=f, v2="")
     if not issues:
-        c.add(GROUP_CONT, "PASSED" if (laden and (empty or dg)) else "NOT_ENOUGH_DATA",
+        c.add(GROUP_CONT, "PASSED" if (laden and (empty or dg)) else "SINGLE_SOURCE",
               f"{len(laden)} container có hàng, {len(empty)} container rỗng: không trùng giữa hàng/rỗng, không lệch giữa DG và Manifest."
-              + ("" if (laden and (empty or dg)) else " (chỉ có 1 nguồn container - Not Enough Data để đối chiếu chéo)"), blocking=False)
+              + ("" if (laden and (empty or dg)) else " (container chỉ có ở 1 loại chứng từ - đã lấy dữ liệu, không có nguồn thứ hai để so)"), blocking=False)
 
 
 def check_documents(c: Ctx):

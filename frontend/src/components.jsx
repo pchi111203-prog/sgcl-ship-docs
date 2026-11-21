@@ -14,7 +14,7 @@ export const CHECK_STATUS = {
   PASSED: ['Passed – Phù hợp', 'b-green'], MISMATCH: ['Mismatch – Sai lệch', 'b-red'], MISSING_INFO: ['Missing Information – Thiếu', 'b-amber'],
   NEEDS_REVIEW: ['Needs Review – Cần kiểm tra', 'b-amber'], DUPLICATE: ['Duplicate – Trùng lặp', 'b-red'],
   LOW_CONFIDENCE: ['Low Confidence – Tin cậy thấp', 'b-amber'], WRONG_VOYAGE: ['Possible Wrong Voyage Document', 'b-red'],
-  NOT_AVAILABLE: ['Not Available in Source', 'b-gray'], NOT_ENOUGH_DATA: ['Not Enough Data', 'b-gray'],
+  SINGLE_SOURCE: ['1 nguồn – đã lấy dữ liệu', 'b-teal'], NOT_AVAILABLE: ['Not Available in Source', 'b-gray'], NOT_ENOUGH_DATA: ['Not Enough Data', 'b-gray'],
 }
 export const FIELD_STATUS = { EXTRACTED: ['Chưa xác nhận', 'b-gray'], EDITED: ['Đã sửa – chưa xác nhận', 'b-amber'], CONFIRMED: ['Đã xác nhận', 'b-green'], EXCLUDED: ['Đã loại bỏ', 'b-gray'] }
 

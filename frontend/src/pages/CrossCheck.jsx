@@ -4,7 +4,7 @@ import { api } from '../api'
 import { Badge, CHECK_STATUS, Modal, Spinner, useToast, useVoyage, VoyageHeader } from '../components'
 import { MoveDocument } from './Documents'
 
-const ORDER = ['WRONG_VOYAGE', 'MISMATCH', 'DUPLICATE', 'MISSING_INFO', 'NEEDS_REVIEW', 'LOW_CONFIDENCE', 'NOT_ENOUGH_DATA', 'NOT_AVAILABLE', 'PASSED']
+const ORDER = ['WRONG_VOYAGE', 'MISMATCH', 'DUPLICATE', 'MISSING_INFO', 'NEEDS_REVIEW', 'LOW_CONFIDENCE', 'NOT_ENOUGH_DATA', 'NOT_AVAILABLE', 'SINGLE_SOURCE', 'PASSED']
 
 export default function CrossCheck() {
   const { id, voyage, reload } = useVoyage()
@@ -23,7 +23,7 @@ export default function CrossCheck() {
   if (!data) return <><VoyageHeader voyage={voyage} current="check" /><div className="empty"><Spinner /></div></>
   const counts = {}
   for (const r of data.results) counts[r.status] = (counts[r.status] || 0) + 1
-  const shown = data.results.filter((r) => filter === 'all' ? true : filter === 'issues' ? !['PASSED', 'NOT_AVAILABLE', 'NOT_ENOUGH_DATA'].includes(r.status) : r.status === filter)
+  const shown = data.results.filter((r) => filter === 'all' ? true : filter === 'issues' ? !['PASSED', 'NOT_AVAILABLE', 'NOT_ENOUGH_DATA', 'SINGLE_SOURCE'].includes(r.status) : r.status === filter)
   const groups = {}
   for (const r of shown) (groups[r.group_name] = groups[r.group_name] || []).push(r)
   for (const g of Object.values(groups)) g.sort((a, b) => b.blocking - a.blocking || ORDER.indexOf(a.status) - ORDER.indexOf(b.status))
@@ -44,12 +44,12 @@ export default function CrossCheck() {
       </div>
       {data.run && <>
         <div className="row" style={{ marginBottom: 12 }}>
-          <button className={`btn sm ${filter === 'issues' ? 'primary' : ''}`} onClick={() => setFilter('issues')}>Cần xử lý ({data.results.filter((r) => !['PASSED', 'NOT_AVAILABLE', 'NOT_ENOUGH_DATA'].includes(r.status)).length})</button>
+          <button className={`btn sm ${filter === 'issues' ? 'primary' : ''}`} onClick={() => setFilter('issues')}>Cần xử lý ({data.results.filter((r) => !['PASSED', 'NOT_AVAILABLE', 'NOT_ENOUGH_DATA', 'SINGLE_SOURCE'].includes(r.status)).length})</button>
           <button className={`btn sm ${filter === 'all' ? 'primary' : ''}`} onClick={() => setFilter('all')}>Tất cả ({data.results.length})</button>
           {ORDER.filter((s) => counts[s]).map((s) => <button key={s} className={`btn sm ${filter === s ? 'primary' : ''}`} onClick={() => setFilter(s)}><Badge map={CHECK_STATUS} value={s} /> {counts[s]}</button>)}
         </div>
         {blocking > 0 ? <div className="alert red"><b>{blocking} vấn đề nghiêm trọng</b> đang chặn việc xuất file Excel (Mismatch / Duplicate / Wrong Voyage chưa được xử lý). Hệ thống không tự chọn giá trị đúng – nhân viên cần kiểm tra bản gốc và quyết định.</div>
-          : <div className="alert green">Không còn vấn đề nghiêm trọng chặn xuất file. Lưu ý: “Passed” chỉ áp dụng cho trường đã được so sánh giữa ít nhất 2 chứng từ.</div>}
+          : <div className="alert green">Không còn vấn đề nghiêm trọng chặn xuất file. “Passed” = đã so giữa ít nhất 2 chứng từ và khớp; “1 nguồn – đã lấy dữ liệu” = chỉ một chứng từ ghi, dữ liệu vẫn được lấy và điền vào Excel (không có nguồn thứ hai để so).</div>}
         {Object.keys(groups).sort().map((g) => (
           <div key={g} className="card tight">
             <div className="card-head"><h2>{g}</h2><span className="small muted">{groups[g].length} kết quả</span></div>

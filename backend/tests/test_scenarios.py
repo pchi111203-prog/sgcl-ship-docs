@@ -466,3 +466,21 @@ def test_same_company_different_address():
     from app.crosscheck import _cargo_cmp
     assert _cargo_cmp("company", "PT. NUSANTARA AGRO GRAINS Jl. Perak Timur No.", "PT. NUSANTARA AGRO GRAINS Jl. Perak Timur No. 112, Surabaya, East Java") == "same"
     assert _cargo_cmp("company", "PT. NUSANTARA AGRO GRAINS Jl. Perak Timur", "PT. SURYA AGRO GRAINS Jl. Perak Timur") != "same"
+
+
+def test_single_source_status():
+    """A value found in ONE document is shown as taken ('SINGLE_SOURCE'), not as 'Not Enough Data', and is exported."""
+    v = client.post("/api/voyages", json={"vessel_name": "SINGLE SOURCE TEST", "voyage_no": "5A"}, headers=H).json()
+    import io
+    from reportlab.pdfgen import canvas
+    buf = io.BytesIO(); cv = canvas.Canvas(buf)
+    for i, line in enumerate(["NOTICE OF ARRIVAL", "Vessel name: SINGLE SOURCE TEST", "Voyage No: 5A", "ETA: 01/12/2026 08:00",
+                              "Last port of call: SINGAPORE (SGSIN)", "Flag: PANAMA"]):
+        cv.drawString(50, 800 - i * 20, line)
+    cv.save()
+    client.post(f"/api/voyages/{v['id']}/documents", files=[("files", ("noa.pdf", buf.getvalue(), "application/pdf"))], headers=H)
+    wait_docs(v["id"])
+    res = {r["field_key"]: r["status"] for r in results(v["id"]) if r["group_name"].startswith("1")}
+    assert res["eta"] == "SINGLE_SOURCE" and res["flag"] == "SINGLE_SOURCE" and res["next_port"] == "NOT_AVAILABLE"
+    cells = {(c["sheet"], c["cell"]): c["value"] for c in client.get(f"/api/voyages/{v['id']}/export/readiness", headers=H).json()["plan"]["cells"]}
+    assert cells[("Notice ship to port", "B24")] == "01/12/2026 08:00" and cells[("Notice ship to port", "B6")] == "SGSIN"

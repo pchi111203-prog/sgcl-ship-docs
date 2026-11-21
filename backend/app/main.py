@@ -114,7 +114,7 @@ def voyage_progress(c, v):
     fstat = {"n": fstat["n"] or 0, "conf": fstat["conf"] or 0, "m": fstat["m"]}
     n_unknown = sum(1 for d in docs if d["status"] == "EXTRACTED" and d["doc_type"] == "OTHER" and not d["doc_type_confirmed"])
     blocking = db.row(c, "SELECT COUNT(*) n FROM crosscheck_results WHERE voyage_id=? AND blocking=1", (vid,))["n"]
-    issues = db.row(c, "SELECT COUNT(*) n FROM crosscheck_results WHERE voyage_id=? AND status NOT IN ('PASSED','NOT_AVAILABLE','NOT_ENOUGH_DATA') AND acknowledged=0", (vid,))["n"]
+    issues = db.row(c, "SELECT COUNT(*) n FROM crosscheck_results WHERE voyage_id=? AND status NOT IN ('PASSED','NOT_AVAILABLE','NOT_ENOUGH_DATA','SINGLE_SOURCE') AND acknowledged=0", (vid,))["n"]
     exports = db.row(c, "SELECT COUNT(*) n, MAX(created_at) last FROM exports WHERE voyage_id=?", (vid,))
     check_fresh = bool(run) and not (fstat["m"] and fstat["m"] > run["run_at"])
     unconfirmed_used = 0
@@ -657,7 +657,7 @@ def get_fields(vid: int, u=Depends(current_user)):
         fs = db.rows(c, "SELECT f.*, d.original_name doc_name, d.doc_type FROM extracted_fields f LEFT JOIN documents d ON d.id=f.document_id "
                         "WHERE f.voyage_id=? ORDER BY f.section, d.id, f.record_index, f.id", (vid,))
         flags = {}
-        for r in db.rows(c, "SELECT field1_id, field2_id, status FROM crosscheck_results WHERE voyage_id=? AND status NOT IN ('PASSED','NOT_AVAILABLE','NOT_ENOUGH_DATA')", (vid,)):
+        for r in db.rows(c, "SELECT field1_id, field2_id, status FROM crosscheck_results WHERE voyage_id=? AND status NOT IN ('PASSED','NOT_AVAILABLE','NOT_ENOUGH_DATA','SINGLE_SOURCE')", (vid,)):
             for k in ("field1_id", "field2_id"):
                 if r[k]:
                     flags.setdefault(r[k], set()).add(r["status"])
