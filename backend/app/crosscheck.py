@@ -321,7 +321,7 @@ def check_identity_available(c: Ctx):
         if not any(f["document_id"] == doc_id for k in ("vessel_name", "imo", "voyage_no") for f in c.header(k)):
             c.add(GROUP_DOC, "NEEDS_REVIEW", f"Needs Manual Review: '{d['original_name']}' không ghi tên tàu / IMO / số chuyến đọc được - "
                   "chưa xác định được chứng từ có thuộc chuyến này không.", doc1=d["id"], blocking=False,
-                  suggestion="Kiểm tra bản gốc rồi bấm 'Xác nhận đúng hồ sơ' ở màn hình Xử lý chứng từ.")
+                  suggestion="Bấm 'Xử lý…' ở dòng này, kiểm tra bản gốc, ghi lý do rồi bấm 'Xác nhận đúng hồ sơ'. Không chặn xuất file.")
 
 
 def check_wrong_voyage(c: Ctx):

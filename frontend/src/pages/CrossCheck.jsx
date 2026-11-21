@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api } from '../api'
+import { api, fileUrl } from '../api'
 import { Badge, CHECK_STATUS, Modal, Spinner, useToast, useVoyage, VoyageHeader } from '../components'
 import { MoveDocument } from './Documents'
 
@@ -84,6 +84,7 @@ function ResolveModal({ r, voyageId, onClose, onDone }) {
   const [custom, setCustom] = useState('')
   const [note, setNote] = useState('')
   const toast = useToast()
+  const identity = r.status === 'NEEDS_REVIEW' && (r.message || '').startsWith('Needs Manual Review')
   const canFix = r.field1_id || r.field2_id
   const resolve = async (action) => {
     try {
@@ -107,7 +108,7 @@ function ResolveModal({ r, voyageId, onClose, onDone }) {
         <div><div className="small muted">{r.doc2_name || 'Nguồn so sánh'}{r.page2 ? ` · trang ${r.page2}` : ''}</div><div className="v">{r.value2 || '(trống)'}</div></div>
       </div>
       <div className="field"><label className="f">Ghi chú / lý do (lưu vào lịch sử)</label><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="VD: Đã kiểm tra với bản gốc B/L do hãng tàu cung cấp" /></div>
-      {canFix && r.status !== 'WRONG_VOYAGE' && <>
+      {canFix && r.status !== 'WRONG_VOYAGE' && !identity && <>
         <h3>Chọn giá trị đúng sau khi kiểm tra bản gốc</h3>
         <div className="row" style={{ marginBottom: 10 }}>
           {r.value1 && r.field2_id && <button className="btn" onClick={() => resolve('use1')}>Dùng giá trị chứng từ 1</button>}
@@ -117,10 +118,13 @@ function ResolveModal({ r, voyageId, onClose, onDone }) {
           <button className="btn" disabled={!custom.trim()} onClick={() => resolve('custom')}>Áp dụng</button></div>
         <hr />
       </>}
-      {r.status === 'WRONG_VOYAGE' && r.doc1_id && <>
-        <h3>Chứng từ nghi thuộc chuyến khác</h3>
-        <p className="small muted" style={{ marginTop: 0 }}>Dữ liệu của chứng từ này đang KHÔNG được đưa vào file Excel. Sau khi kiểm tra bản gốc:</p>
+      {(r.status === 'WRONG_VOYAGE' || identity) && r.doc1_id && <>
+        <h3>{identity ? 'Chứng từ chưa xác định được thuộc chuyến nào' : 'Chứng từ nghi thuộc chuyến khác'}</h3>
+        <p className="small muted" style={{ marginTop: 0 }}>{identity
+          ? 'Hệ thống không đọc được tên tàu / IMO / số chuyến trên chứng từ này (thường do bản scan mờ). Dữ liệu của nó vẫn được dùng. Mở bản gốc để kiểm tra, ghi lý do ở ô Ghi chú (VD: "Đúng Crew List tàu HTP OCEAN chuyến 14/2023") rồi:'
+          : 'Dữ liệu của chứng từ này đang KHÔNG được đưa vào file Excel. Sau khi kiểm tra bản gốc:'}</p>
         <div className="row" style={{ marginBottom: 12 }}>
+          <a className="btn ghost" href={fileUrl(`/api/documents/${r.doc1_id}/file`)} target="_blank" rel="noreferrer">Mở bản gốc ↗</a>
           <button className="btn" disabled={!note.trim()} onClick={confirmDoc} title="Cần ghi lý do ở ô Ghi chú">Xác nhận đúng hồ sơ</button>
           <button className="btn" onClick={() => setMoving(true)}>Chuyển sang chuyến khác…</button>
           <Link className="btn ghost" to={`/voyages/${voyageId}/documents`}>Xóa ở màn hình Xử lý chứng từ</Link>
