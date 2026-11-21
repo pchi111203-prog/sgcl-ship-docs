@@ -636,7 +636,7 @@ def _split_into_children(d, segments, user):
                   (f"File gộp: đã tách thành {len(segments)} chứng từ", db.now(), d["id"]))
         db.log(c, d["voyage_id"], "SPLIT_COMBINED_FILE", user, old=d["original_name"], new=f"{len(segments)} chứng từ")
     for cid in child_ids:
-        process_document(cid, user)
+        _process_document(cid, user)
 
 
 def _delete_children(c, parent_id):
@@ -653,7 +653,24 @@ def _rm_if_unused(c, stored_name):
 
 
 def process_document(did, user):
-    """Read -> classify -> extract -> store. Runs in a worker thread."""
+    """Read -> classify -> extract -> store, then - when the voyage has no document left in processing and was
+    cross-checked before - run the cross-check again so its results never stay on half-read documents."""
+    _process_document(did, user)
+    try:
+        with db.tx() as c:
+            d = db.row(c, "SELECT voyage_id, parent_id FROM documents WHERE id=?", (did,))
+            if not d or d["parent_id"]:
+                return  # parts: the combined file's own call does it once all parts are read
+            vid = d["voyage_id"]
+            if db.row(c, "SELECT id FROM documents WHERE voyage_id=? AND status='PROCESSING'", (vid,)):
+                return
+            if db.row(c, "SELECT id FROM crosscheck_runs WHERE voyage_id=?", (vid,)):
+                crosscheck.run(c, vid, "Hệ thống (sau khi đọc xong chứng từ)")
+    except Exception:
+        traceback.print_exc()
+
+
+def _process_document(did, user):
     try:
         with db.tx() as c:
             d = db.row(c, "SELECT * FROM documents WHERE id=?", (did,))

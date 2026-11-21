@@ -501,6 +501,14 @@ def check_crew(c: Ctx):
         c.add(GROUP_CREW, "MISSING_INFO", "Chưa có Crew List trong bộ chứng từ.", blocking=False)
         return
     recs = c.records("crew", ["CREW_LIST", "MANUAL"])
+    if not recs and any(d["status"] == "PROCESSING" for d in crew_docs):
+        return  # still being read: reported once at the top
+    failed = [d for d in crew_docs if d["status"] == "ERROR"]
+    if not recs and failed:
+        for d in failed:
+            c.add(GROUP_CREW, "MISSING_INFO", f"Crew List '{d['original_name']}' bị lỗi khi đọc: {d.get('error') or 'không rõ'}.", doc1=d["id"],
+                  blocking=True, suggestion="Ở màn hình Xử lý chứng từ, bấm 'Xử lý lại' cho file này.")
+        return
     if not recs:
         c.add(GROUP_CREW, "MISSING_INFO", "Không trích xuất được dòng thuyền viên nào từ Crew List (bản scan/ảnh mờ hoặc bố cục chưa nhận diện). "
               "Cần nhập bổ sung tại màn hình Kiểm tra & xác nhận.", blocking=True)
@@ -682,6 +690,11 @@ def check_quality(c: Ctx):
 
 def run(conn, voyage_id, user):
     c = Ctx(conn, voyage_id)
+    busy = [d for d in c.docs.values() if d["status"] == "PROCESSING"]
+    if busy:
+        c.add(GROUP_DOC, "NEEDS_REVIEW", f"{len(busy)} chứng từ đang được đọc (bản scan cần vài phút): "
+              + ", ".join(d["original_name"] for d in busy[:5]) + ". Kết quả đối chiếu bên dưới CHƯA đầy đủ - hệ thống tự chạy lại đối chiếu khi đọc xong.",
+              blocking=True, suggestion="Đợi vài phút rồi tải lại trang.")
     check_documents(c)
     check_mixed_vessels(c)
     check_identity_available(c)
