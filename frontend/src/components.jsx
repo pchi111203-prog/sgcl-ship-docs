@@ -115,12 +115,6 @@ export function VoyageHeader({ voyage, current }) {
           <span key={s.key} className={`badge ${s.done ? 'b-teal' : 'b-gray'}`} title={s.done ? 'Đã hoàn thành' : s.why}>{s.done ? '✓ ' : ''}{STEP_EN[s.key] || s.label}</span>
         ))}
       </div>
-      {p.progress < 100 && p.steps.some((s) => !s.done && s.key !== 'export') && (
-        <div className="alert amber small">
-          <b>Tiến độ {p.progress}% – các bước chưa hoàn thành:</b>
-          <ul>{p.steps.filter((s) => !s.done).map((s) => <li key={s.key}><b>{s.label}:</b> {s.why}</li>)}</ul>
-        </div>
-      )}
     </>
   )
 }
