@@ -165,7 +165,9 @@ def test_scenario3_scanned_missing():
     assert not any(f["field_key"] == "eta" for f in gd)          # not invented
     assert not any(f["field_key"] == "crew_count" for f in gd)   # not invented
     assert any(r["status"] == "NOT_AVAILABLE" and r["field_key"] == "eta" for r in res)
-    assert any(r["group_name"].startswith("3") and r["status"] == "MISSING_INFO" for r in res)
+    # blanks in the crew list (the only source) are summarised once, not listed per member as issues
+    assert any(r["group_name"].startswith("3") and r["field_key"] == "crew_blanks" and r["status"] == "NOT_AVAILABLE" for r in res)
+    assert not any(r["group_name"].startswith("3") and r["status"] == "MISSING_INFO" and "thiếu" in r["message"] for r in res)
     assert all(f["method"].startswith("ocr") for f in fields if f["document_id"])
     # staff adds a crew member manually
     r = client.post(f"/api/voyages/{vid}/records", json={"section": "crew", "fields": {"full_name": "TEST MANUAL", "rank": "MASTER"}}, headers=H)

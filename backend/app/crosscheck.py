@@ -534,6 +534,7 @@ def check_crew(c: Ctx):
                   suggestion=("So với bản gốc Crew List rồi thêm dòng thuyền viên còn thiếu tại Kiểm tra & xác nhận > Thuyền viên."
                               if scanned and k > n else "Kiểm tra Crew List có thiếu/thừa dòng hoặc trích xuất bỏ sót trang."))
     seen_pp, seen_nm = {}, {}
+    blanks = defaultdict(int)
     eta = (c.header("eta") or [None])[0]
     eta_d, _ = N.parse_date(eta["value"]) if eta else (None, False)
     for (doc_id, rk), r in sorted(recs.items(), key=lambda x: next(iter(x[1].values()))["record_index"]):
@@ -542,8 +543,9 @@ def check_crew(c: Ctx):
         missing = [FIELD_LABELS[k] for k in ("rank", "nationality", "dob", "passport_no") if not (r.get(k) and r[k]["value"])]
         if not name_f:
             missing.insert(0, "Họ tên")
-        if missing:
-            c.add(GROUP_CREW, "MISSING_INFO", f"Thuyền viên '{nm}' thiếu: {', '.join(missing)}.", None, rk, f1=name_f, doc1=doc_id, blocking=False)
+        if missing:  # the crew list is the only source: its rows are taken as they are, blanks are only summarised below
+            for m in missing:
+                blanks[m] += 1
         pp = N.norm_id((r.get("passport_no") or {}).get("value"))
         if pp:
             if pp in seen_pp:
@@ -566,6 +568,10 @@ def check_crew(c: Ctx):
                 elif dk == "passport_expiry" and eta_d:
                     if datetime.strptime(d[:10], "%d/%m/%Y") < datetime.strptime(eta_d[:10], "%d/%m/%Y"):
                         c.add(GROUP_CREW, "NEEDS_REVIEW", f"'{nm}' - hộ chiếu hết hạn ({d}) trước ETA ({eta_d}).", dk, rk, f1=f)
+    if blanks:
+        c.add(GROUP_CREW, "NOT_AVAILABLE", f"Đã lấy {n} thuyền viên từ Crew List. Ô để trống vì Crew List không ghi hoặc bản scan không đọc được: "
+              + ", ".join(f"{k} ({v} người)" for k, v in blanks.items()) + ". Có thể bổ sung tại Kiểm tra & xác nhận nếu cần.",
+              "crew_blanks", blocking=False)
     if not any(r["status"] in ("MISMATCH", "DUPLICATE") for r in c.results if r["group_name"] == GROUP_CREW):
         c.add(GROUP_CREW, "PASSED", f"Đã kiểm tra {n} thuyền viên: không phát hiện trùng lặp.", blocking=False)
 
