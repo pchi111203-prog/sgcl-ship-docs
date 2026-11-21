@@ -582,3 +582,20 @@ def test_bilingual_same_party_keeps_bl_wording():
     assert any(x["status"] == "PASSED" and x["field_key"] == "consignee" and "tiếng Việt gốc" in x["message"] for x in res)
     log = client.get(f"/api/voyages/{v['id']}/log", headers=H).json()
     assert any(e["action"] == "SAME_PARTY_BILINGUAL" and vi in (e.get("reason") or "") for e in log)
+
+
+def test_passport_letter_completed_from_other_document():
+    from app import db
+    from app.main import _complete_passport_letters
+    v = client.post("/api/voyages", json={"vessel_name": "PASSPORT TEST", "voyage_no": "8"}, headers=H).json()
+    with db.tx() as c:
+        docs = [c.execute("INSERT INTO documents(voyage_id,original_name,stored_name,ext,size,sha256,status,uploaded_by,uploaded_at,doc_type) "
+                          "VALUES(?,?,?,?,?,?,'EXTRACTED','t',?,'CREW_LIST')", (v["id"], f"crew{i}.pdf", f"c{i}", ".pdf", 1, f"pp{i}{v['id']}", db.now())).lastrowid
+                for i in (1, 2)]
+        for d, val in ((docs[0], "1328382"), (docs[1], "C1328382")):
+            c.execute("INSERT INTO extracted_fields(voyage_id,document_id,section,record_key,record_index,field_key,field_label,original_value,value,"
+                      "page_no,confidence,method,status,updated_at) VALUES(?,?,'crew','crew:1',1,'passport_no','p',?,?,1,0.7,'ocr-line','EXTRACTED',?)",
+                      (v["id"], d, val, val, db.now()))
+        _complete_passport_letters(c, v["id"], "t")
+        f = db.row(c, "SELECT value, original_value FROM extracted_fields WHERE document_id=?", (docs[0],))
+    assert f["value"] == "C1328382" and f["original_value"] == "1328382"

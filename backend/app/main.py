@@ -1,5 +1,6 @@
 """SGCL - Ship Documentation Automation System: REST API (FastAPI)."""
 import hashlib
+import re
 import os
 import secrets
 import shutil
@@ -677,6 +678,31 @@ def process_document(did, user):
         traceback.print_exc()
 
 
+def _complete_passport_letters(c, vid, user):
+    """A scanned passport number that lost its letter ('1328382') is completed from another document of the
+    same voyage where the same number is written with its letter ('C1328382') - only when exactly one such
+    number exists. The value read stays as the original value; staff-edited values are not touched."""
+    rows = db.rows(c, "SELECT f.id, f.document_id, f.value, f.status FROM extracted_fields f JOIN documents d ON d.id=f.document_id "
+                      "WHERE f.voyage_id=? AND f.section='crew' AND f.field_key='passport_no' AND f.status!='EXCLUDED'", (vid,))
+    full = {}
+    for r in rows:
+        v = (r["value"] or "").strip().upper()
+        if re.fullmatch(r"[A-Z]\d{6,9}", v):
+            full.setdefault(v[1:], set()).add((v, r["document_id"]))
+    for r in rows:
+        v = (r["value"] or "").strip()
+        if r["status"] != "EXTRACTED" or not re.fullmatch(r"\d{6,9}", v):
+            continue
+        cands = {x for x, doc in full.get(v, set()) if doc != r["document_id"]}
+        if len(cands) == 1:
+            new = cands.pop()
+            src = next(doc for x, doc in full[v] if x == new)
+            c.execute("UPDATE extracted_fields SET value=?, method=method || '-letter-from-other-document', updated_at=? WHERE id=?",
+                      (new, db.now(), r["id"]))
+            db.log(c, vid, "AUTO_COMPLETE_PASSPORT", user, r["id"], "passport_no", v, new,
+                   f"Bản scan mất chữ cái đầu; chứng từ khác (id {src}) ghi đầy đủ {new}")
+
+
 def _process_document(did, user):
     try:
         with db.tx() as c:
@@ -734,6 +760,8 @@ def _process_document(did, user):
                 label = extract.DOC_TYPES.get(doc_type, "").split(" (")[0].split(" – ")[0]
                 c.execute("UPDATE documents SET original_name=? WHERE id=?", (f"{head} › phần {num}: {label}{pages_txt}", did))
             db.log(c, d["voyage_id"], "EXTRACT", user, reason=f"{d['original_name']}: {len(fields)} trường, loại {doc_type}")
+            if doc_type == "CREW_LIST":
+                _complete_passport_letters(c, d["voyage_id"], user)
             _touch(c, d["voyage_id"])
     except Exception as e:
         traceback.print_exc()

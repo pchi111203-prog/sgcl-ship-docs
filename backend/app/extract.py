@@ -722,6 +722,16 @@ def _fill_from_other_readings(rows, others):
         return ks
     for r in rows:
         ks = key_names(r)
+        pp = r["fields"].get("passport_no")
+        if pp and re.fullmatch(r"\d{6,9}", pp["value"]):
+            # letter of the passport lost in this reading ("1328382"): another reading with the same digits has it
+            for v in others:
+                hit = next((o["fields"]["passport_no"] for o in v if "passport_no" in o["fields"]
+                            and re.fullmatch(r"[A-Z]" + pp["value"], o["fields"]["passport_no"]["value"])), None)
+                if hit:
+                    r["fields"]["passport_no"] = {**hit, "method": hit["method"] + "-letter-from-other-reading"}
+                    ks = key_names(r)
+                    break
         for v in others:
             for o in v:
                 if ks & key_names(o):

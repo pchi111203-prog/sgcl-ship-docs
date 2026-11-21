@@ -540,6 +540,8 @@ def check_crew(c: Ctx):
                               if scanned and k > n else "Kiểm tra Crew List có thiếu/thừa dòng hoặc trích xuất bỏ sót trang."))
     seen_pp, seen_nm = {}, {}
     blanks = defaultdict(int)
+    letters_used = sorted({(x.get("passport_no") or {}).get("value", "") for x in recs.values()
+                           if re.fullmatch(r"[A-Z]\d{6,9}", ((x.get("passport_no") or {}).get("value") or "").strip())})
     eta = (c.header("eta") or [None])[0]
     eta_d, _ = N.parse_date(eta["value"]) if eta else (None, False)
     for (doc_id, rk), r in sorted(recs.items(), key=lambda x: next(iter(x[1].values()))["record_index"]):
@@ -551,6 +553,11 @@ def check_crew(c: Ctx):
         if missing:  # the crew list is the only source: its rows are taken as they are, blanks are only summarised below
             for m in missing:
                 blanks[m] += 1
+        pv = ((r.get("passport_no") or {}).get("value") or "").strip()
+        if re.fullmatch(r"\d{6,9}", pv) and letters_used:
+            c.add(GROUP_CREW, "NEEDS_REVIEW", f"'{nm}' - Số hộ chiếu '{pv}' có thể thiếu chữ cái đầu (các số khác trong Crew List có dạng "
+                  f"{letters_used[0]}). Không chứng từ nào khác ghi đủ số này nên hệ thống không tự thêm.", "passport_no", rk, f1=r["passport_no"],
+                  suggestion="Đối chiếu bản gốc và sửa tại Kiểm tra & xác nhận.", blocking=False)
         pp = N.norm_id((r.get("passport_no") or {}).get("value"))
         if pp:
             if pp in seen_pp:
