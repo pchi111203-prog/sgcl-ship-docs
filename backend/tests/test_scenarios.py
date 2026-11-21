@@ -534,3 +534,12 @@ def test_scanned_bl_and_crew_lines():
     rows = [{k: v["value"] for k, v in r["fields"].items()} for r in extract.extract_ocr_crew_rows(crew[0])]
     assert [r["full_name"] for r in rows] == ["NGUYEN VAN DIEP", "VU VAN CHIEN", "VAN DUC TUYEN"]
     assert rows[1]["rank"] == "ABE" and rows[1]["pob"] == "NAMDINH" and rows[2]["passport_no"] == "C0121147" and rows[2]["rank"] == "COOK"
+
+
+def test_box_number_is_not_voyage_no():
+    """FAL forms number their boxes: 'Voyage No.   2. Port of arrival' - '2.' is not the voyage number."""
+    from app import extract
+    pg = lambda t: [{"page_no": 1, "method": "text", "confidence": 1, "tables": [], "text": t}]
+    assert "voyage_no" not in extract.extract_header(pg("Voyage No.   2. Port of arrival: LONG AN"), ["voyage_no"])
+    assert extract.extract_header(pg("Voyage No.: 14/2023"), ["voyage_no"])["voyage_no"]["value"] == "14/2023"
+    assert extract.extract_header(pg("Voyage No: 5"), ["voyage_no"])["voyage_no"]["value"] == "5"

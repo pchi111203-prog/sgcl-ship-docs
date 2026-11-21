@@ -528,6 +528,8 @@ def _post_header(k, v):
         v = re.sub(r"(?<=\d)[.,]?[Il|](?=(19|20)\d{2}\b)", "/", v)  # OCR: "14.I2023" = "14/2023"
         if not re.search(r"\d", v):  # a voyage number always contains digits ("AGE", "OF" ... are reading errors)
             return None
+        if re.fullmatch(r"\d{1,2}(\.\d{1,2})*\.", v) or re.fullmatch(r"\d{1,2}\.\d{1,2}", v):
+            return None  # "2." / "1.2" = number of the next box of the form (FAL forms), not a voyage number
     return v.strip() or None
 
 
