@@ -402,7 +402,8 @@ def extract_header(pages, keys, all_keys=None):
             values_inline = []
             for j, (s, e, k) in enumerate(hits):
                 end = hits[j + 1][0] if j + 1 < len(hits) else len(line)
-                values_inline.append(_clean_value(raw_lines[i][e:end]))
+                # "Cảng đến/|Rời   LONG AN" read by OCR as label + "/HRGI": that piece is the rest of the label
+                values_inline.append(_clean_value(re.sub(r"^\s*[/|]\s*[^\s/]{1,6}(?=\s{3,})", "", raw_lines[i][e:end])))
             if len(hits) > 1 and not any(values_inline) and i + 1 < len(lines):
                 cols = [c.strip() for c in re.split(r"\s{3,}|\t|\|", raw_lines[i + 1]) if c.strip()]
                 cols = _merge_comma_cols(cols)
@@ -697,7 +698,7 @@ _RANKS = r"CAPT(?:AIN)?|MASTER|C/?O|CH\.?\s?OFF|[1-4]/?O|C/?E|CH\.?\s?ENG|[1-4]/
 _RANK_RE = re.compile(rf"^(?:{_RANKS})$", re.I)
 _NAT_RE = re.compile(r"\b(VIET\s?NAM|VIỆT\s?NAM|INDONESIA|PHILIPPINES|FILIPINO|CHINA|CHINESE|MYANMAR|INDIA|INDIAN|THAILAND|MALAYSIA|KOREA|UKRAINE|RUSSIA)\b", re.I)
 _OCR_DATE = re.compile(r"(?<![\d])([!lI1]?\d{1,4}[/.\-]\d{1,2}[/.\-][!lI1]?\d{2,4})(?![\d])")
-_PASSPORT = re.compile(r"(?<![A-Za-z0-9])([A-Z€][0-9OIl]{7,8})(?![A-Za-z0-9])")
+_PASSPORT = re.compile(r"(?<![A-Za-z0-9/.\-])([A-Z€]?[0-9OIl]{7,8})(?![A-Za-z0-9/.\-])")
 
 
 def _fix_ocr_digits(s):
@@ -709,11 +710,11 @@ def extract_ocr_crew_rows(page):
     the table header cannot be read. Only lines with both a passport number and a date are taken."""
     recs = []
     for line in page["text"].splitlines():
-        pm = _PASSPORT.search(line)
         dates = list(_OCR_DATE.finditer(line))
-        if not pm or not dates:
+        if not dates:
             continue
-        before = line[:min(pm.start(), dates[0].start())]
+        pm = next((m for m in _PASSPORT.finditer(line) if sum(ch.isdigit() for ch in _fix_ocr_digits(m.group(1)[1:])) >= 6), None)
+        before = line[:min(pm.start(), dates[0].start()) if pm else dates[0].start()]
         toks = re.findall(r"[^\s|\[\]{}]+", before)
         name, rank, nat = [], None, None
         for t in toks:
@@ -750,15 +751,16 @@ def extract_ocr_crew_rows(page):
         if nm:
             put("nationality", nm.group(0).upper())
         dob = dates[0]
-        if dob.start() < pm.start():
+        if not pm or dob.start() < pm.start():
             put("dob", _fix_ocr_digits(dob.group(1)))
-            mid = line[dob.end():pm.start()]
+            mid = line[dob.end():pm.start() if pm else (dates[1].start() if len(dates) > 1 else len(line))]
             pob = " ".join(re.findall(r"[A-ZÀ-ỸĐ][A-ZÀ-ỸĐ\-]+(?:\s+[A-ZÀ-ỸĐ][A-ZÀ-ỸĐ\-]+)*", mid)).strip()
             if pob and not _NAT_RE.fullmatch(pob):
                 put("pob", pob)
-        pno = pm.group(1)
-        put("passport_no", pno[0].replace("€", "C") + _fix_ocr_digits(pno[1:]))
-        after = [d for d in dates if d.start() > pm.end()]
+        if pm:
+            pno = pm.group(1)
+            put("passport_no", (pno[0].replace("€", "C") if not pno[0].isdigit() else pno[0]) + _fix_ocr_digits(pno[1:]))
+        after = [d for d in dates if d.start() > (pm.end() if pm else dob.end())]
         if after:
             put("passport_expiry", _fix_ocr_digits(after[0].group(1)))
         recs.append({"fields": f, "page_no": page["page_no"]})

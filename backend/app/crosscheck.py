@@ -179,11 +179,11 @@ def superseded_crew_lists(conn, docs, fields, voyage):
     crew_docs = [d for d in docs.values() if d["doc_type"] == "CREW_LIST" and d["status"] == "EXTRACTED"]
     if len(crew_docs) < 2:
         return {}
-    pp = defaultdict(set)
+    pp = defaultdict(set)  # passports and names of each list (scans: one of the two may be misread)
     for f in fields:
-        if f["section"] == "crew" and f["field_key"] == "passport_no" and f["document_id"] in {d["id"] for d in crew_docs}:
-            v = N.norm_id(f["value"])
-            if v:
+        if f["section"] == "crew" and f["field_key"] in ("passport_no", "full_name") and f["document_id"] in {d["id"] for d in crew_docs}:
+            v = N.norm_id(f["value"]) if f["field_key"] == "passport_no" else "N:" + N.norm_text(f["value"])
+            if v and v != "N:":
                 pp[f["document_id"]].add(v)
     arrival = [voyage.get("port_of_arrival") or ""] + [f["value"] for f in fields if f["field_key"] in ("port_of_arrival", "pod", "port_of_discharge")
                                                      and docs.get(f["document_id"], {}).get("doc_type") != "CREW_LIST" and f["value"]]
@@ -202,8 +202,10 @@ def superseded_crew_lists(conn, docs, fields, voyage):
         for b in ids[i + 1:]:
             if b in out or docs[b].get("voyage_confirmed"):
                 continue
-            small = min(len(pp[a]), len(pp[b]))
-            if small and len(pp[a] & pp[b]) >= max(2, small / 2):
+            pa = {x for x in pp[a] if not x.startswith("N:")}; pb = {x for x in pp[b] if not x.startswith("N:")}
+            na = pp[a] - pa; nb = pp[b] - pb
+            share = max(len(pa & pb) / (min(len(pa), len(pb)) or 1e9), len(na & nb) / (min(len(na), len(nb)) or 1e9))
+            if share >= 0.5 and max(len(pa & pb), len(na & nb)) >= 2:
                 if info[a][0] and not info[b][0]:
                     why = "Crew List được giữ có ghi cảng đến của chuyến này"
                 elif info[a][1] and info[b][1] and info[a][1] != info[b][1]:

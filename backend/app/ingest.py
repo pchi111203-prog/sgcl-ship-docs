@@ -9,6 +9,7 @@ import io
 import re
 import os
 import shutil
+import threading
 
 MIN_TEXT_CHARS = 40  # below this a PDF page is considered scanned and is OCR'd
 
@@ -48,6 +49,8 @@ def ocr_status():
             "languages": langs, "pdf_engine": "PyMuPDF" if fitz else None}
 
 
+MAX_OCR_SIDE = 5300  # enough for small print in scanner-app pages, bounded memory
+OCR_LOCK = threading.Lock()
 OCR_LANG = os.environ.get("SGCL_OCR_LANG")  # e.g. "eng" for speed, default eng+vie when available
 os.environ.setdefault("OMP_THREAD_LIMIT", "1")  # tesseract multi-threading is slower with parallel workers
 
@@ -58,11 +61,14 @@ def _ocr_image(img):
     if not HAS_TESSERACT:
         raise IngestError("Chưa cài đặt OCR (Tesseract) - không thể đọc chứng từ scan/ảnh.")
     img = ImageOps.exif_transpose(img).convert("L")
+    if max(img.size) > MAX_OCR_SIDE * 1.2:
+        f = MAX_OCR_SIDE / max(img.size)
+        img = img.resize((int(img.width * f), int(img.height * f)))
     if img.width < 1600:
         f = 1600 / img.width
         img = img.resize((int(img.width * f), int(img.height * f)))
     lang = OCR_LANG or ("eng+vie" if "vie" in (pytesseract.get_languages(config="") or []) else "eng")
-    res = _ocr_pass(img, lang)
+    res = _ocr_best(img, lang)
     if res[1] < 0.72:
         # Poor reading: the scan may be sideways/upside down (e.g. a landscape crew list scanned
         # in portrait). Ask tesseract for the page orientation and read again if it is rotated.
@@ -72,9 +78,37 @@ def _ocr_image(img):
         except Exception:
             angle = 0
         if angle:
-            rot = _ocr_pass(img.rotate(-angle, expand=True), lang)
+            rot = _ocr_best(img.rotate(-angle, expand=True), lang)
             if rot[1] > res[1]:
                 res = rot
+    return res
+
+
+def _otsu(img):
+    """Black/white version of a grey scan (Otsu threshold): phone scans with grey background read better."""
+    hist = img.histogram()[:256]
+    total = sum(hist)
+    sum_all = sum(i * h for i, h in enumerate(hist))
+    w_b = sum_b = 0
+    best_t, best_v = 128, -1
+    for t in range(256):
+        w_b += hist[t]
+        if not w_b or w_b == total:
+            continue
+        sum_b += t * hist[t]
+        m_b, m_f = sum_b / w_b, (sum_all - sum_b) / (total - w_b)
+        v = w_b * (total - w_b) * (m_b - m_f) ** 2
+        if v > best_v:
+            best_t, best_v = t, v
+    return img.point(lambda x: 255 if x > best_t else 0)
+
+
+def _ocr_best(img, lang):
+    res = _ocr_pass(img, lang)
+    if res[1] < 0.85:  # weak reading: try the black/white version and keep the better one
+        bw = _ocr_pass(_otsu(img), lang)
+        if bw[1] > res[1]:
+            res = bw
     return res
 
 
@@ -119,9 +153,15 @@ def _pdf_pages(path):
             layout = _layout_text(page) or text
             pages.append({"page_no": i + 1, "text": layout, "method": "text", "confidence": 1.0, "tables": tables})
         else:
-            pix = page.get_pixmap(dpi=300)
-            img = Image.open(io.BytesIO(pix.tobytes("png")))
-            t, conf, words = _ocr_image(img)
+            # 300 dpi for normal pages, but never more than ~3500 px on the long side: scanner apps (CamScanner...)
+            # make pages 3x A4 size, which at 300 dpi gives 8000x11000 px images and exhausts the server memory.
+            zoom = min(300 / 72, MAX_OCR_SIDE / max(page.rect.width, page.rect.height))
+            pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), colorspace=fitz.csGRAY)
+            img = Image.frombytes("L", (pix.width, pix.height), pix.samples)
+            del pix
+            with OCR_LOCK:  # one OCR at a time: bounded memory on small servers
+                t, conf, words = _ocr_image(img)
+            del img
             pages.append({"page_no": i + 1, "text": t, "method": "ocr", "confidence": conf, "tables": [], "words": words})
     return pages
 
@@ -181,7 +221,8 @@ def _image_pages(path):
     n = getattr(img, "n_frames", 1)
     for i in range(n):  # multi-page TIFF
         img.seek(i)
-        t, conf, words = _ocr_image(img.copy())
+        with OCR_LOCK:
+            t, conf, words = _ocr_image(img.copy())
         pages.append({"page_no": i + 1, "text": t, "method": "ocr", "confidence": conf, "tables": [], "words": words})
     return pages
 

@@ -35,8 +35,15 @@ MAX_UPLOAD = 50 * 1024 * 1024
 def startup():
     db.init_db()
     N.load_codes_from_template(db.TEMPLATE_PATH)
-    with db.tx() as c:  # documents interrupted by a restart
-        c.execute("UPDATE documents SET status='ERROR', error='Bị gián đoạn khi đang xử lý - hãy xử lý lại' WHERE status='PROCESSING'")
+    with db.tx() as c:  # documents interrupted by a restart: read again once, then report
+        again = [d["id"] for d in db.rows(c, "SELECT id FROM documents WHERE status='PROCESSING' "
+                                             "AND COALESCE(error,'')!='AUTO_RETRY'")]
+        c.execute("UPDATE documents SET status='ERROR', error='Bị gián đoạn khi đang xử lý - hãy xử lý lại' "
+                  "WHERE status='PROCESSING' AND id NOT IN (%s)" % (",".join(map(str, again)) or "0"))
+        for did in again:
+            c.execute("UPDATE documents SET error='AUTO_RETRY' WHERE id=?", (did,))
+    for did in again:
+        POOL.submit(process_document, did, "Hệ thống (đọc lại sau khi khởi động lại)")
     _reprocess_after_update()
 
 
