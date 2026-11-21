@@ -15,6 +15,7 @@ from collections import defaultdict
 
 from . import db
 from . import normalize as N
+from . import crosscheck
 from .crosscheck import _locode
 from .xlsxpatch import Book, col2num, num2col, split_ref
 
@@ -154,8 +155,11 @@ class Data:
         self.suspect = {r["doc1_id"] for r in db.rows(conn, "SELECT doc1_id FROM crosscheck_results WHERE voyage_id=? AND status='WRONG_VOYAGE' "
                                                           "AND acknowledged=0 AND doc1_id IS NOT NULL", (voyage_id,))}
         self.suspect -= {d for d, x in self.docs.items() if x.get("voyage_confirmed")}
+        all_fields = db.rows(conn, "SELECT * FROM extracted_fields WHERE voyage_id=? AND status!='EXCLUDED'", (voyage_id,))
+        voyage = db.row(conn, "SELECT * FROM voyages WHERE id=?", (voyage_id,))
+        self.superseded = set(crosscheck.superseded_crew_lists(conn, self.docs, all_fields, voyage)) - self.suspect
         self.fields = [f for f in db.rows(conn, "SELECT * FROM extracted_fields WHERE voyage_id=? AND status!='EXCLUDED' ORDER BY record_index, id",
-                                          (voyage_id,)) if f["document_id"] not in self.suspect]
+                                          (voyage_id,)) if f["document_id"] not in self.suspect and f["document_id"] not in self.superseded]
         self.opts = _opts(conn, voyage_id)
 
     def dtype(self, f):

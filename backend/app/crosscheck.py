@@ -14,6 +14,7 @@ Statuses:
 The engine never decides which value is right; it reports both values with their sources.
 """
 import re
+from datetime import datetime
 from collections import defaultdict
 
 from . import db
@@ -149,12 +150,79 @@ CARGO_CHECKS = [
 ]
 
 
+_DATE_LABEL = re.compile(r"(date|ng[aà]y|th[oờ]i\s+gian)", re.I)
+
+
+def _doc_date(text):
+    """Latest date written next to a date label (not dates of birth / passport expiry in table rows)."""
+    best = None
+    for line in (text or "").splitlines():
+        if not _DATE_LABEL.search(N.strip_accents(line)) or re.search(r"[A-Z]\d{7}", line):
+            continue
+        for m in re.finditer(r"\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4}|\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{4}|\d{1,2}\s+th[aá]ng\s+\d{1,2}\s+n[aă]m\s+\d{4}", line):
+            s = re.sub(r"\s+th[aá]ng\s+", "/", re.sub(r"\s+n[aă]m\s+", "/", m.group(0)))
+            d, ok = N.parse_date(s)
+            if ok:
+                try:
+                    dd = datetime.strptime(d[:10], "%d/%m/%Y")
+                except ValueError:
+                    continue
+                if 2000 <= dd.year <= datetime.now().year + 1 and (best is None or dd > best):
+                    best = dd
+    return best
+
+
+def superseded_crew_lists(conn, docs, fields, voyage):
+    """{doc_id: (kept_doc_id, reason)} for crew lists repeating the crew of another crew list (>= half the passports).
+    The list kept is the one naming the port of arrival of this voyage, else the most recent one. Documents the staff
+    confirmed for this voyage are never set aside."""
+    crew_docs = [d for d in docs.values() if d["doc_type"] == "CREW_LIST" and d["status"] == "EXTRACTED"]
+    if len(crew_docs) < 2:
+        return {}
+    pp = defaultdict(set)
+    for f in fields:
+        if f["section"] == "crew" and f["field_key"] == "passport_no" and f["document_id"] in {d["id"] for d in crew_docs}:
+            v = N.norm_id(f["value"])
+            if v:
+                pp[f["document_id"]].add(v)
+    arrival = [voyage.get("port_of_arrival") or ""] + [f["value"] for f in fields if f["field_key"] in ("port_of_arrival", "pod", "port_of_discharge")
+                                                     and docs.get(f["document_id"], {}).get("doc_type") != "CREW_LIST" and f["value"]]
+    words = set().union(*[_port_words(a) for a in arrival]) if arrival else set()
+    info = {}
+    for d in crew_docs:
+        text = "\n".join(r["text"] or "" for r in db.rows(conn, "SELECT text FROM document_pages WHERE document_id=? ORDER BY page_no", (d["id"],)))
+        norm = " " + N.norm_text(text) + " "
+        names_port = bool(words) and all((" " + w + " ") in norm or w in norm.replace(" ", "") for w in words)
+        info[d["id"]] = (names_port, _doc_date(text))
+    out = {}
+    ids = sorted(pp, key=lambda i: (info[i][0], info[i][1] or datetime.min), reverse=True)  # preferred first
+    for i, a in enumerate(ids):
+        if a in out:
+            continue
+        for b in ids[i + 1:]:
+            if b in out or docs[b].get("voyage_confirmed"):
+                continue
+            small = min(len(pp[a]), len(pp[b]))
+            if small and len(pp[a] & pp[b]) >= max(2, small / 2):
+                if info[a][0] and not info[b][0]:
+                    why = "Crew List được giữ có ghi cảng đến của chuyến này"
+                elif info[a][1] and info[b][1] and info[a][1] != info[b][1]:
+                    why = f"Crew List được giữ có ngày mới hơn ({info[a][1]:%d/%m/%Y} so với {info[b][1]:%d/%m/%Y})"
+                else:
+                    continue  # cannot tell which list is this voyage's: leave both, duplicates are reported
+                out[b] = (a, why)
+    return out
+
+
 class Ctx:
     def __init__(self, conn, voyage_id):
         self.conn = conn
         self.voyage = db.row(conn, "SELECT * FROM voyages WHERE id=?", (voyage_id,))
         self.docs = {d["id"]: d for d in db.rows(conn, "SELECT * FROM documents WHERE voyage_id=?", (voyage_id,))}
         self.fields = db.rows(conn, "SELECT * FROM extracted_fields WHERE voyage_id=? AND status!='EXCLUDED'", (voyage_id,))
+        # a crew list of another port call (same crew, e.g. last port's list) is set aside, not reported as duplicates
+        self.superseded = superseded_crew_lists(conn, self.docs, self.fields, self.voyage)
+        self.fields = [f for f in self.fields if f["document_id"] not in self.superseded]
         self.results = []
         self.acks = {(a["check_key"], a["value1"] or "", a["value2"] or ""): a for a in
                      db.rows(conn, "SELECT * FROM crosscheck_acks WHERE voyage_id=?", (voyage_id,))}
@@ -246,7 +314,7 @@ def check_mixed_vessels(c: Ctx):
 
 def check_identity_available(c: Ctx):
     for doc_id, d in c.docs.items():
-        if d["status"] != "EXTRACTED" or d["doc_type"] not in IDENTITY_DOCS or d.get("voyage_confirmed"):
+        if d["status"] != "EXTRACTED" or d["doc_type"] not in IDENTITY_DOCS or d.get("voyage_confirmed") or doc_id in c.superseded:
             continue
         if not any(f["document_id"] == doc_id for k in ("vessel_name", "imo", "voyage_no") for f in c.header(k)):
             c.add(GROUP_DOC, "NEEDS_REVIEW", f"Needs Manual Review: '{d['original_name']}' không ghi tên tàu / IMO / số chuyến đọc được - "
@@ -424,7 +492,11 @@ def check_cargo(c: Ctx):
 
 
 def check_crew(c: Ctx):
-    crew_docs = [d for d in c.docs.values() if d["doc_type"] == "CREW_LIST"]
+    for b, (a, why) in c.superseded.items():
+        c.add(GROUP_CREW, "NEEDS_REVIEW", f"'{c.doc_name(b)}' có cùng thuyền viên với '{c.doc_name(a)}' - đây là Crew List của cảng/thời điểm khác, "
+              f"hệ thống dùng '{c.doc_name(a)}' cho chuyến này và KHÔNG đưa bản kia vào Excel ({why}).", None, None, doc1=b, doc2=a, blocking=False,
+              suggestion="Nếu chọn sai: mở chứng từ bị loại ở màn hình Xử lý chứng từ và bấm 'Xác nhận đúng hồ sơ'.")
+    crew_docs = [d for d in c.docs.values() if d["doc_type"] == "CREW_LIST" and d["id"] not in c.superseded]
     if not crew_docs:
         c.add(GROUP_CREW, "MISSING_INFO", "Chưa có Crew List trong bộ chứng từ.", blocking=False)
         return
@@ -471,10 +543,13 @@ def check_crew(c: Ctx):
             f = r.get(dk)
             if f and f["value"]:
                 d, ok = N.parse_date(f["value"])
+                yr = int(d[6:10]) if ok and re.match(r"\d{2}/\d{2}/\d{4}", d) else None
                 if not ok:
                     c.add(GROUP_CREW, "NEEDS_REVIEW", f"'{nm}' - {FIELD_LABELS[dk]} '{f['value']}' không đúng định dạng ngày.", dk, rk, f1=f)
+                elif yr and not ((1930 if dk == "dob" else 1990) <= yr <= (datetime.now().year if dk == "dob" else 2100)):
+                    c.add(GROUP_CREW, "NEEDS_REVIEW", f"'{nm}' - {FIELD_LABELS[dk]} '{f['value']}' có năm không hợp lý (có thể đọc sai bản scan).", dk, rk, f1=f,
+                          suggestion="Đối chiếu bản gốc và sửa tại Kiểm tra & xác nhận.")
                 elif dk == "passport_expiry" and eta_d:
-                    from datetime import datetime
                     if datetime.strptime(d[:10], "%d/%m/%Y") < datetime.strptime(eta_d[:10], "%d/%m/%Y"):
                         c.add(GROUP_CREW, "NEEDS_REVIEW", f"'{nm}' - hộ chiếu hết hạn ({d}) trước ETA ({eta_d}).", dk, rk, f1=f)
     if not any(r["status"] in ("MISMATCH", "DUPLICATE") for r in c.results if r["group_name"] == GROUP_CREW):

@@ -644,8 +644,11 @@ def process_document(did, user):
                           (d["voyage_id"], did, f["section"], f["record_key"], f["record_index"], f["field_key"], f["field_label"],
                            f["original_value"], f["value"], f["page_no"], f["confidence"], f["method"], db.now(), dtype, unit))
             err = None
-            unknown_ok = doc_type == "OTHER" and any((p["text"] or "").strip() for p in pages)
-            if not fields and unknown_ok:
+            # unknown / reference documents (e.g. a voyage memo) need no fields: they are kept for reference, not an error
+            unknown_ok = doc_type in ("OTHER", "REFERENCE", "CERTIFICATE") and any((p["text"] or "").strip() for p in pages)
+            if not fields and unknown_ok and doc_type != "OTHER":
+                err = None
+            elif not fields and unknown_ok:
                 err = "Unknown Document: chưa nhận diện được loại chứng từ - chọn loại nếu đây là chứng từ nghiệp vụ, hoặc để 'Chứng từ khác'."
             elif not fields:
                 err = "Không trích xuất được trường dữ liệu nào (nội dung không đọc được hoặc chưa có mẫu nhận diện)."

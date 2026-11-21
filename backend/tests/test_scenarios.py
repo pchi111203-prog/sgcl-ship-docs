@@ -510,3 +510,27 @@ def test_vessel_summary_uses_crosscheck_comparison():
     rows = {r["key"]: r for r in client.get(f"/api/voyages/{v['id']}/profile-suggestions", headers=H).json()}
     assert not rows["gross_tonnage"]["conflict"] and rows["gross_tonnage"]["value"].startswith("4,353")
     assert not rows["vessel_name"]["conflict"]  # 'MV GT TEST' = 'GT TEST'
+
+
+def test_scanned_bl_and_crew_lines():
+    """Scanned forms: B/L number printed apart from its label, label row above value row, crew rows without a readable header."""
+    from app import extract
+    bl = [{"page_no": 1, "method": "ocr", "confidence": 0.9, "tables": [], "words": {}, "text": "\n".join([
+        'CODE NAME : "CONGENBILL" EDITION 1994   B/L No.',
+        "é   Shipper   BILL OF LADING   SP/PTK/LA-230901",
+        "Consignee", "TO THE ORDER OF SOME BANK",
+        "Vessel   Port of loading", "MV HTP OCEAN V16/2023   PONTIANAK,   INDONESIA",
+        "Port of discharge", "LONG AN PORT,   VIETNAM",
+        "Shippcrs description of goods   Gross weight", "PALM KERNEL EXPELLERS   SAID TO WEIGHT:   2200 MT"])}]
+    rec = {f["field_key"]: f["value"] for f in extract.extract_document("BILL_OF_LADING", bl)}
+    assert rec["bl_no"] == "SP/PTK/LA-230901" and rec["pol"] == "PONTIANAK, INDONESIA" and rec["pod"] == "LONG AN PORT, VIETNAM"
+    assert rec["gross_weight"].startswith("2200") and rec["description"] == "PALM KERNEL EXPELLERS" and "shipper" not in rec
+    assert rec["vessel_name"] == "HTP OCEAN"
+    crew = [{"page_no": 1, "method": "ocr", "confidence": 0.8, "tables": [], "words": {}, "text": "\n".join([
+        "DANH SACH THUYEN VIEN", "CREW LIST",
+        "n1   NGUYEN VAN DIEP   VIETNAM   02/02/1972   C5773739   |09/08/2028",
+        "l9.   VU VAN CHIEN | ABE   VIETNAM | 09/06/1966 | NAMDINH   |C6199518   {11/10/2028",
+        "pan   VAN DUC TUYEN   COOK | VỊET NAM | 1984-10-02 | NGHEAN |   C0I2I147 | 2025-03-04"])}]
+    rows = [{k: v["value"] for k, v in r["fields"].items()} for r in extract.extract_ocr_crew_rows(crew[0])]
+    assert [r["full_name"] for r in rows] == ["NGUYEN VAN DIEP", "VU VAN CHIEN", "VAN DUC TUYEN"]
+    assert rows[1]["rank"] == "ABE" and rows[1]["pob"] == "NAMDINH" and rows[2]["passport_no"] == "C0121147" and rows[2]["rank"] == "COOK"

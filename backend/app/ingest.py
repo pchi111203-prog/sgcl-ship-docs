@@ -6,6 +6,7 @@ Returns a list of pages: {page_no, text, method, confidence, tables}
   * tables: list of tables, each a list of rows (list of cell strings)
 """
 import io
+import re
 import os
 import shutil
 
@@ -61,6 +62,23 @@ def _ocr_image(img):
         f = 1600 / img.width
         img = img.resize((int(img.width * f), int(img.height * f)))
     lang = OCR_LANG or ("eng+vie" if "vie" in (pytesseract.get_languages(config="") or []) else "eng")
+    res = _ocr_pass(img, lang)
+    if res[1] < 0.72:
+        # Poor reading: the scan may be sideways/upside down (e.g. a landscape crew list scanned
+        # in portrait). Ask tesseract for the page orientation and read again if it is rotated.
+        try:
+            osd = pytesseract.image_to_osd(img, config="--psm 0 -c min_characters_to_try=10")
+            angle = int(re.search(r"Rotate:\s*(\d+)", osd).group(1))
+        except Exception:
+            angle = 0
+        if angle:
+            rot = _ocr_pass(img.rotate(-angle, expand=True), lang)
+            if rot[1] > res[1]:
+                res = rot
+    return res
+
+
+def _ocr_pass(img, lang):
     data = pytesseract.image_to_data(img, lang=lang, config="--psm 6", output_type=pytesseract.Output.DICT)
     lines, confs, words = {}, [], {}
     for i, w in enumerate(data["text"]):
