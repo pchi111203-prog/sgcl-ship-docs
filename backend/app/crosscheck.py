@@ -209,9 +209,7 @@ def check_vessel(c: Ctx):
                 if not N.imo_valid(f["value"]):
                     c.add(GROUP_VESSEL, "NEEDS_REVIEW", f"IMO '{f['value']}' sai số kiểm tra (check digit) - có thể đọc sai hoặc ghi sai.", key, "header", f1=f,
                           suggestion="Đối chiếu với bản gốc chứng từ.")
-        if len(vals) == 1:
-            c.add(GROUP_VESSEL, "SINGLE_SOURCE", f"{label}: đã lấy dữ liệu từ {c.doc_name(vals[0]['document_id'])} - chỉ chứng từ này ghi, "
-                  "không có chứng từ thứ hai để so.", key, "header", f1=vals[0])
+        if len(vals) == 1:  # vessel particulars stated in one document are taken as they are - nothing to list
             continue
         base = vals[0]
         diff = False

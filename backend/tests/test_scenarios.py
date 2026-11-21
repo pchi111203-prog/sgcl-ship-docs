@@ -481,7 +481,7 @@ def test_single_source_status():
     client.post(f"/api/voyages/{v['id']}/documents", files=[("files", ("noa.pdf", buf.getvalue(), "application/pdf"))], headers=H)
     wait_docs(v["id"])
     res = {r["field_key"]: r["status"] for r in results(v["id"]) if r["group_name"].startswith("1")}
-    assert res["eta"] == "SINGLE_SOURCE" and res["flag"] == "SINGLE_SOURCE" and res["next_port"] == "NOT_AVAILABLE"
+    assert "eta" not in res and "flag" not in res and res["next_port"] == "NOT_AVAILABLE"  # vessel info from one document: not listed
     cells = {(c["sheet"], c["cell"]): c["value"] for c in client.get(f"/api/voyages/{v['id']}/export/readiness", headers=H).json()["plan"]["cells"]}
     assert cells[("Notice ship to port", "B24")] == "01/12/2026 08:00" and cells[("Notice ship to port", "B6")] == "SGSIN"
 
