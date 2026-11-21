@@ -545,3 +545,11 @@ def test_box_number_is_not_voyage_no():
     assert "voyage_no" not in extract.extract_header(pg("Voyage No.   2. Port of arrival: LONG AN"), ["voyage_no"])
     assert extract.extract_header(pg("Voyage No.: 14/2023"), ["voyage_no"])["voyage_no"]["value"] == "14/2023"
     assert extract.extract_header(pg("Voyage No: 5"), ["voyage_no"])["voyage_no"]["value"] == "5"
+
+
+def test_ocr_rank_normalised_and_row_number_dropped():
+    from app import extract
+    p = {"page_no": 1, "method": "ocr", "confidence": 0.8, "tables": [], "words": {}, "text":
+         "II VAN DUC TUYEN   CO   VIETNAM | 1984-10-02 | NGHE AN | C0121147 | 2025-03-04"}
+    r = {k: v["value"] for k, v in extract.extract_ocr_crew_rows(p)[0]["fields"].items()}
+    assert r["full_name"] == "VAN DUC TUYEN" and r["rank"] == "C/O" and r["passport_no"] == "C0121147"

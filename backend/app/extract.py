@@ -707,6 +707,27 @@ def _fix_ocr_digits(s):
     return s.replace("!", "1").replace("l", "1").replace("I", "1").replace("O", "0")
 
 
+def _fill_from_other_readings(rows, others):
+    """A field left blank in the chosen reading (typically the rank) is taken from another reading of the same
+    page for the same person (same name or passport)."""
+    def key_names(r):
+        f = r["fields"]
+        ks = set()
+        if "full_name" in f:
+            ks.add("N:" + re.sub(r"[^A-Z]", "", N.strip_accents(f["full_name"]["value"]).upper()))
+        if "passport_no" in f:
+            ks.add("P:" + f["passport_no"]["value"])
+        return ks
+    for r in rows:
+        ks = key_names(r)
+        for v in others:
+            for o in v:
+                if ks & key_names(o):
+                    for k, val in o["fields"].items():
+                        if k not in r["fields"] and k in ("rank", "nationality", "dob", "pob", "passport_no", "passport_expiry"):
+                            r["fields"][k] = {**val, "method": val["method"] + "-other-reading"}
+
+
 def extract_ocr_crew_rows(page):
     """One crew member per text line: NAME  [RANK]  NATIONALITY  DOB  [PLACE]  PASSPORT  [EXPIRY] - for scans where
     the table header cannot be read. Only lines with both a passport number and a date are taken."""
@@ -722,7 +743,7 @@ def extract_ocr_crew_rows(page):
         for t in toks:
             tt = t.strip(".,;:")
             if _RANK_RE.match(tt):
-                rank = tt.upper()
+                rank = re.sub(r"^([C1-4])/?([OE])$", r"\1/\2", tt.upper())  # OCR drops the slash: CO -> C/O, 2E -> 2/E
                 if name:
                     continue
             elif _NAT_RE.fullmatch(N.strip_accents(tt)) or (name and _NAT_RE.match(N.strip_accents(" ".join([name[-1], tt])))):
@@ -741,6 +762,8 @@ def extract_ocr_crew_rows(page):
         name = [w for w in name if not _NAT_RE.fullmatch(w)]
         if nm and name and name[-1] == nm.group(0).split()[0].upper():
             name = name[:-1]
+        while len(name) > 2 and re.fullmatch(r"[IL1|]{1,3}", name[0]):
+            name = name[1:]  # row number read as letters ("11" -> "II")
         if len(name) < 2:
             continue
         conf = lambda v: round(_word_conf(page, v) * 0.95, 2)
@@ -913,8 +936,9 @@ def extract_document(doc_type, pages):
                 got = by_page.get(p["page_no"], [])
                 if p["method"] == "ocr":
                     # the reading (of the alternative OCR readings of a weak scan) that yields the most crew rows
-                    lr = max((extract_ocr_crew_rows({**p, "text": t}) for t in [p["text"]] + list(p.get("alt_texts") or [])),
-                             key=lambda rs: (len(rs), sum(len(r["fields"]) for r in rs)))
+                    variants = [extract_ocr_crew_rows({**p, "text": t}) for t in [p["text"]] + list(p.get("alt_texts") or [])]
+                    lr = max(variants, key=lambda rs: (len(rs), sum(len(r["fields"]) for r in rs)))
+                    _fill_from_other_readings(lr, [v for v in variants if v is not lr])
                     good = [r for r in got if "passport_no" in r["fields"] and _PASSPORT.search(r["fields"]["passport_no"]["value"] or "")]
                     if len(lr) > len(good):
                         got = lr

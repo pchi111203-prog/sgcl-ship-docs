@@ -103,6 +103,86 @@ def _otsu(img):
     return img.point(lambda x: 255 if x > best_t else 0)
 
 
+def _line_runs(mask, L, axis):
+    import numpy as np
+    a = mask if axis == 1 else mask.T
+    h, w = a.shape
+    if w <= L:
+        return np.zeros(mask.shape, bool)
+    cs = np.zeros((h, w + 1), np.int32)
+    np.cumsum(a, axis=1, out=cs[:, 1:])
+    full = (cs[:, L:] - cs[:, :-L]) == L  # window [i, i+L) entirely dark
+    st = np.zeros((h, w + 1), np.int32)
+    st[:, :w - L + 1] += full
+    st[:, L:w + 1] -= full
+    cov = np.cumsum(st, axis=1)[:, :w] > 0
+    return cov if axis == 1 else cov.T
+
+
+def _remove_table_lines(bw):
+    """White out the ruling of a scanned table (short words next to cell borders - CAPT, C/O, 2/E ... - are
+    otherwise dropped by the OCR). Returns the cleaned image and the y of the horizontal rules (row borders).
+    Worked in stripes to keep memory low."""
+    import numpy as np
+    a = np.array(bw)
+    dark = a < 128
+    h, w = dark.shape
+    hm = np.zeros((h, w), bool)
+    vm = np.zeros((h, w), bool)
+    for y0 in range(0, h, 256):
+        hm[y0:y0 + 256] = _line_runs(dark[y0:y0 + 256], max(40, w // 30), 1)
+    for x0 in range(0, w, 256):
+        vm[:, x0:x0 + 256] = _line_runs(dark[:, x0:x0 + 256], max(40, h // 30), 0)
+    rows = np.nonzero(hm.sum(axis=1) > w * 0.25)[0]
+    rules = []
+    for y in rows:
+        if rules and y - rules[-1][1] <= 3:
+            rules[-1][1] = y
+        else:
+            rules.append([y, y])
+    m = hm | vm
+    del hm, vm, dark
+    m2 = m.copy()
+    m2[1:] |= m[:-1]; m2[:-1] |= m[1:]; m2[:, 1:] |= m[:, :-1]; m2[:, :-1] |= m[:, 1:]
+    a[m2] = 255
+    return Image.fromarray(a), [(r0 + r1) / 2 for r0, r1 in rules]
+
+
+def _sparse_text(img, lang, rules=()):
+    """Every word found anywhere (psm 11) on the page without table lines, rebuilt into lines: words between
+    the same two row borders of a table are one line (cells of a row are often not on the same height)."""
+    data = pytesseract.image_to_data(img, lang=lang, config="--psm 11", output_type=pytesseract.Output.DICT)
+    ws = [(data["top"][i] + data["height"][i] / 2, data["left"][i], data["width"][i], data["height"][i], (data["text"][i] or "").strip())
+          for i in range(len(data["text"])) if (data["text"][i] or "").strip() and float(data["conf"][i]) >= 0]
+    if not ws:
+        return ""
+    hs = sorted(w[3] for w in ws)
+    med = hs[len(hs) // 2]
+    tol = max(6, med * 0.6)
+    rules = sorted(rules)
+
+    def band(y):
+        for i in range(len(rules) - 1):
+            if rules[i] < y < rules[i + 1] and rules[i + 1] - rules[i] < med * 4:
+                return i  # inside one table row
+        return None
+    lines = []
+    for w in sorted(ws):
+        b = band(w[0])
+        if lines and ((b is not None and b == lines[-1][2]) or (b is None and lines[-1][2] is None and abs(w[0] - lines[-1][0]) <= tol)):
+            lines[-1][1].append(w)
+        else:
+            lines.append([w[0], [w], b])
+    out = []
+    for _, line, _b in lines:
+        s, prev = "", None
+        for _, left, width, height, t in sorted(line, key=lambda x: x[1]):
+            s = t if prev is None else s + ("   " if left - prev > max(height, 12) * 1.2 else " ") + t
+            prev = left + width
+        out.append(s)
+    return "\n".join(out)
+
+
 def _ocr_best(img, lang):
     """Best reading + the texts of the other readings (alternatives): a table row missed in one reading of a
     weak scan is often present in another, extraction can pick the reading that yields the most rows."""
@@ -116,6 +196,12 @@ def _ocr_best(img, lang):
         w, h = img.size  # a slightly different scale gives tesseract another chance on small print
         sc = _ocr_pass(_otsu(img.resize((int(w * 0.8), int(h * 0.8)))), lang)
         alts.append(sc[0])
+    if res[1] < 0.9:  # scanned table: one more reading without the ruling lines
+        try:
+            clean, rules = _remove_table_lines(_otsu(img))
+            alts.append(_sparse_text(clean, lang, rules))
+        except Exception:
+            pass
     return (*res, alts)
 
 
