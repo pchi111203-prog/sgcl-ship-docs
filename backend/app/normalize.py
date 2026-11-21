@@ -420,3 +420,14 @@ def bilingual_match(a, b):
             if iw and iw <= ywords and (len(iw) >= 2 or any(len(w) >= 7 for w in iw)):
                 return inner.strip()
     return None
+
+
+_NOTHING = re.compile(r"^\s*(?:(?:khong|ko)\b.*|nothing(?:\s+to\s+declare)?\b.*|none\b.*|nil\b.*|no\s+(?:dutiable|effects|declarable)\b.*|n/?a|-+|\.+)\s*$", re.I)
+
+
+def nil_if_nothing(v):
+    """Crew's effects: 'Không có hành lý vượt định mức' / 'Nothing to declare' / 'None' -> 'NIL' (NSW convention)."""
+    if v is None:
+        return v
+    s = strip_accents(str(v)).strip()
+    return "NIL" if s == "" or _NOTHING.match(s) and not re.search(r"\d", s) else v

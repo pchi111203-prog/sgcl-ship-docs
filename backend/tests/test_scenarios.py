@@ -599,3 +599,10 @@ def test_passport_letter_completed_from_other_document():
         _complete_passport_letters(c, v["id"], "t")
         f = db.row(c, "SELECT value, original_value FROM extracted_fields WHERE document_id=?", (docs[0],))
     assert f["value"] == "C1328382" and f["original_value"] == "1328382"
+
+
+def test_effects_nothing_to_declare_is_nil():
+    from app import extract
+    assert extract.normalise_field("effects", "Không có hành lý vượt định mức") == "NIL"
+    assert extract.normalise_field("effects", "Nothing to declare") == "NIL"
+    assert extract.normalise_field("effects", "01 cây thuốc lá (200 điếu)") == "01 cây thuốc lá (200 điếu)"

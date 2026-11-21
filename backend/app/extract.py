@@ -918,6 +918,8 @@ def normalise_field(key, value):
         return re.sub(r"\s+", "", v).upper()
     if key == "call_sign":
         return re.sub(r"\s+", "", v).upper()
+    if key == "effects":
+        return N.nil_if_nothing(re.sub(r"\s+", " ", v))
     return re.sub(r"\s+", " ", v)
 
 

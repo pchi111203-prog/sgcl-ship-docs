@@ -363,7 +363,7 @@ def _effects(plan, data):
     sheet = "Crew's Effects Declaration"
     for rec in data.records("effects"):
         fam, giv, nf = _names(rec, data.opts.get("name_split"))
-        _row(plan, sheet, {"A": fam, "B": giv, "C": _coded(plan, data, sheet, "rank", _v(rec, "rank"), "chức danh"), "D": _v(rec, "effects")},
+        _row(plan, sheet, {"A": fam, "B": giv, "C": _coded(plan, data, sheet, "rank", _v(rec, "rank"), "chức danh"), "D": N.nil_if_nothing(_v(rec, "effects"))},
              nf + [rec.get("rank"), rec.get("effects")], data)
 
 
