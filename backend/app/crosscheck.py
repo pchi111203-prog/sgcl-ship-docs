@@ -136,6 +136,11 @@ VESSEL_CHECKS = [
     ("next_port", _cmp_port, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL"]),
 ]
 
+COMPARATORS = {k: cmp for k, cmp, _ in VESSEL_CHECKS}
+COMPARATORS.update({"master_name": lambda a, b: N.norm_text(re.sub(r"^(CAPT\.?|CAPTAIN)\s+", "", a or "", flags=re.I)) ==
+                    N.norm_text(re.sub(r"^(CAPT\.?|CAPTAIN)\s+", "", b or "", flags=re.I)),
+                    "crew_count": _cmp_number, "etd": _cmp_date})
+
 CARGO_CHECKS = [
     ("shipper", "company"), ("consignee", "company"), ("notify", "company"), ("description", "text"),
     ("packages", "number"), ("gross_weight", "weight"), ("measurement", "number"),

@@ -139,7 +139,7 @@ H = {
     "crew_count": ("Number of crew", [r"number\s+of\s+crew", r"no\.?\s+of\s+crew", r"crew\s+(number|on\s+board)", r"s[oố]\s+thuy[eề]n\s+vi[eê]n"]),
     "passenger_count": ("Number of passengers", [r"number\s+of\s+passengers", r"no\.?\s+of\s+passengers", r"s[oố]\s+h[aà]nh\s+kh[aá]ch"]),
     "gross_tonnage": ("Gross tonnage", [r"gross\s+tonnage", r"\bg\.?r\.?t\.?\b", r"\bgt\b(?=\s*[:\-\s]\s*\d)", r"t[oổ]ng\s+dung\s+t[ií]ch"]),
-    "net_tonnage": ("Net tonnage", [r"net\s+tonnage", r"\bn\.?r\.?t\.?\b", r"\bnt\b(?=\s*[:\-\s]\s*\d)", r"dung\s+t[ií]ch\s+c[oó]\s+[ií]ch"]),
+    "net_tonnage": ("Net tonnage", [r"net\s+tonnage", r"\bn\.?r\.?t\.?\b", r"\bnt\b(?=\s*[:\-\s]\s*\d)", r"dung\s+t[ií]ch\s+c[oó]\s+[ií]ch", r"dung\s+t[ií]ch\s+th[uự]c\s+d[uụ]ng"]),
     "dwt": ("Deadweight", [r"dead\s*weight", r"\bdwt\b"]),
     "loa": ("LOA", [r"length\s+overall", r"\bloa\b"]),
     "draft_fwd": ("Mớn nước mũi (F)", [r"draft\s*(fwd|fore|forward|\(f\))", r"draught\s*(fwd|fore|forward)", r"fwd\s+draft"]),

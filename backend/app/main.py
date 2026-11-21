@@ -352,7 +352,20 @@ def profile_suggestions(vid: int, u=Depends(current_user)):
             fs = db.rows(c, f"SELECT f.value, f.status, d.original_name, d.doc_type, f.page_no FROM extracted_fields f JOIN documents d ON d.id=f.document_id "
                             f"WHERE f.voyage_id=? AND f.status!='EXCLUDED' AND f.section='vessel' AND f.record_key='header' AND f.field_key=? AND d.doc_type IN ({','.join('?' * len(types))})",
                          (vid, k, *types))
-            vals = {N.norm_text(f["value"]): f["value"] for f in fs if f["value"]}
+            # group values with the SAME comparison as the cross-check ('4,353 GT' = '4,353', 'MV X' = 'X', 'VIỆT NAM' = 'VIETNAM')
+            prio = {t: i for i, t in enumerate(types)}
+            fs.sort(key=lambda f: prio.get(f["doc_type"], 99))
+            cmp = crosscheck.COMPARATORS.get(k, lambda a, b: N.norm_text(a) == N.norm_text(b))
+            groups = []
+            for f in fs:
+                if not f["value"]:
+                    continue
+                for g in groups:
+                    if cmp(g[0], f["value"]):
+                        break
+                else:
+                    groups.append([f["value"]])
+            vals = {g[0]: g[0] for g in groups}
             out.append({"key": k, "label": extract.FIELD_LABELS.get(k, k), "current": v.get(k), "sources": fs, "applicable": k in VOYAGE_COLS,
                         "value": next(iter(vals.values())) if len(vals) == 1 else None, "conflict": len(vals) > 1})
     return out

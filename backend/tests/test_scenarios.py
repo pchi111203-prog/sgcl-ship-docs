@@ -484,3 +484,29 @@ def test_single_source_status():
     assert res["eta"] == "SINGLE_SOURCE" and res["flag"] == "SINGLE_SOURCE" and res["next_port"] == "NOT_AVAILABLE"
     cells = {(c["sheet"], c["cell"]): c["value"] for c in client.get(f"/api/voyages/{v['id']}/export/readiness", headers=H).json()["plan"]["cells"]}
     assert cells[("Notice ship to port", "B24")] == "01/12/2026 08:00" and cells[("Notice ship to port", "B6")] == "SGSIN"
+
+
+
+def test_vessel_summary_uses_crosscheck_comparison():
+    """'4,353 GT' (NOA) and '4,353' (tonnage certificate) are the same gross tonnage in the consolidated vessel information."""
+    from app import extract
+    pages = [{"page_no": 1, "method": "docx", "confidence": 1.0, "tables": [],
+              "text": "TỔNG DUNG TÍCH (GROSS TONNAGE): 4,353\nDUNG TÍCH THỰC DỤNG (NET TONNAGE): 2,485"}]
+    assert {k: v["value"] for k, v in extract.extract_header(pages, ["gross_tonnage", "net_tonnage"]).items()} == {"gross_tonnage": "4,353", "net_tonnage": "2,485"}
+    v = client.post("/api/voyages", json={"vessel_name": "GT TEST", "voyage_no": "1B"}, headers=H).json()
+    import io
+    from reportlab.pdfgen import canvas
+
+    def pdf(lines):
+        buf = io.BytesIO(); cv = canvas.Canvas(buf)
+        for i, line in enumerate(lines):
+            cv.drawString(50, 800 - i * 20, line)
+        cv.save()
+        return buf.getvalue()
+    client.post(f"/api/voyages/{v['id']}/documents", headers=H, files=[
+        ("files", ("noa.pdf", pdf(["NOTICE OF ARRIVAL", "Vessel name: MV GT TEST", "Gross tonnage: 4,353 GT"]), "application/pdf")),
+        ("files", ("itc.pdf", pdf(["INTERNATIONAL TONNAGE CERTIFICATE (1969)", "Name of ship: GT TEST", "Gross tonnage: 4,353"]), "application/pdf"))])
+    wait_docs(v["id"])
+    rows = {r["key"]: r for r in client.get(f"/api/voyages/{v['id']}/profile-suggestions", headers=H).json()}
+    assert not rows["gross_tonnage"]["conflict"] and rows["gross_tonnage"]["value"].startswith("4,353")
+    assert not rows["vessel_name"]["conflict"]  # 'MV GT TEST' = 'GT TEST'
