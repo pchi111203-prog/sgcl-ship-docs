@@ -428,8 +428,10 @@ def extract_header(pages, keys, all_keys=None):
                             continue
                         if _label_hits(lines[nl], all_keys):
                             break
-                        nxt.append(_merge_comma_cols(re.split(r"\s{3,}", raw_lines[nl].strip()))[0])
-                        if k not in MULTILINE_PARTY or len(nxt) >= 1:
+                        piece = _merge_comma_cols(re.split(r"\s{3,}", raw_lines[nl].strip()))
+                        nxt.append(piece[0] if not (nxt and k in MULTILINE_PARTY) else " ".join(piece))
+                        # a party name broken over lines ("... BANK FOR" / "FOREIGN TRADE OF VIETNAM, NGHE AN BRANCH")
+                        if k not in MULTILINE_PARTY or len(nxt) >= 3 or not re.search(r"(\b(FOR|OF|AND|THE|TO)|[,&\-])\s*$", nxt[-1], re.I):
                             break
                     val = _clean_value(" ".join(nxt))
                 if not val or len(val) > 160 or val.rstrip().endswith(":"):

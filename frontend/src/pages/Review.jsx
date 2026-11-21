@@ -232,7 +232,7 @@ function AddRecord({ section, labels, voyageId, onClose, onDone }) {
   )
 }
 
-const ACTIONS = { EDIT_FIELD: 'Sửa giá trị', CONFIRM_FIELD: 'Xác nhận', UNCONFIRM_FIELD: 'Bỏ xác nhận', RESOLVE_MISMATCH: 'Xử lý sai lệch', ACK_DIFFERENCE: 'Chấp nhận khác biệt',
+const ACTIONS = { EDIT_FIELD: 'Sửa giá trị', CONFIRM_FIELD: 'Xác nhận', UNCONFIRM_FIELD: 'Bỏ xác nhận', RESOLVE_MISMATCH: 'Xử lý sai lệch', SAME_PARTY_BILINGUAL: 'Xác nhận cùng một bên (song ngữ) – dùng cách ghi B/L', ACK_DIFFERENCE: 'Chấp nhận khác biệt',
   UPLOAD: 'Tải chứng từ', EXTRACT: 'Trích xuất', CROSSCHECK: 'Đối chiếu', EXPORT_EXCEL: 'Xuất Excel', SET_DOC_TYPE: 'Đổi loại chứng từ', DELETE_DOCUMENT: 'Xóa chứng từ',
   ADD_MANUAL_RECORD: 'Thêm dòng nhập tay', SET_EXPORT_OPTION: 'Tùy chọn xuất', CREATE_VOYAGE: 'Tạo chuyến', EDIT_VOYAGE: 'Sửa chuyến', REPLACE_DOCUMENT: 'Thay file' }
 

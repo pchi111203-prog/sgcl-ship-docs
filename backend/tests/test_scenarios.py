@@ -553,3 +553,32 @@ def test_ocr_rank_normalised_and_row_number_dropped():
          "II VAN DUC TUYEN   CO   VIETNAM | 1984-10-02 | NGHE AN | C0121147 | 2025-03-04"}
     r = {k: v["value"] for k, v in extract.extract_ocr_crew_rows(p)[0]["fields"].items()}
     assert r["full_name"] == "VAN DUC TUYEN" and r["rank"] == "C/O" and r["passport_no"] == "C0121147"
+
+
+def test_bilingual_same_party_keeps_bl_wording():
+    """VI manifest consignee vs EN B/L consignee: staff confirm same party -> Excel uses the B/L wording, VI kept in history."""
+    from app import db
+    v = client.post("/api/voyages", json={"vessel_name": "BILINGUAL TEST", "voyage_no": "7"}, headers=H).json()
+    vi = "Theo lệnh Vietcombank CN Nghệ An. Bên thông báo: Công ty CP Đầu tư XNK Phương Trang"
+    en = "TO THE ORDER OF JOINT STOCK COMMERCIAL BANK FOR FOREIGN TRADE OF VIETNAM, NGHE AN BRANCH"
+    with db.tx() as c:
+        ids = {}
+        for t in ("CARGO_MANIFEST", "BILL_OF_LADING"):
+            ids[t] = c.execute("INSERT INTO documents(voyage_id,original_name,stored_name,ext,size,sha256,status,uploaded_by,uploaded_at,doc_type) "
+                               "VALUES(?,?,?,?,?,?,'EXTRACTED','t',?,?)", (v["id"], t + ".pdf", t, ".pdf", 1, t + str(v["id"]), db.now(), t)).lastrowid
+        for t, rk, val in (("CARGO_MANIFEST", "mf:1", vi), ("BILL_OF_LADING", "bl:1", en)):
+            for k, x in (("bl_no", "SP/PTK/LA-230901"), ("consignee", val)):
+                c.execute("INSERT INTO extracted_fields(voyage_id,document_id,section,record_key,record_index,field_key,field_label,original_value,value,"
+                          "page_no,confidence,method,status,updated_at) VALUES(?,?,'cargo',?,1,?,?,?,?,1,0.9,'text','EXTRACTED',?)",
+                          (v["id"], ids[t], rk, k, k, x, x, db.now()))
+    res = client.post(f"/api/voyages/{v['id']}/crosscheck", headers=H).json()["results"]
+    r = next(x for x in res if (x.get("check_key") or "").startswith("lang|"))
+    assert r["status"] == "NEEDS_REVIEW" and not r["blocking"]
+    assert client.post(f"/api/crosscheck/{r['id']}/resolve", json={"action": "same_party"}, headers=H).status_code == 200
+    fs = client.get(f"/api/voyages/{v['id']}/fields", headers=H).json()["fields"]
+    mf = next(f for f in fs if f["field_key"] == "consignee" and f["document_id"] == ids["CARGO_MANIFEST"])
+    assert mf["value"] == en and mf["original_value"] == vi
+    res = results(v["id"])
+    assert any(x["status"] == "PASSED" and x["field_key"] == "consignee" and "tiếng Việt gốc" in x["message"] for x in res)
+    log = client.get(f"/api/voyages/{v['id']}/log", headers=H).json()
+    assert any(e["action"] == "SAME_PARTY_BILINGUAL" and vi in (e.get("reason") or "") for e in log)

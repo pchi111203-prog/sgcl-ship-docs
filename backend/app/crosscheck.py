@@ -475,10 +475,15 @@ def check_cargo(c: Ctx):
                 c.add(GROUP_CARGO, "PASSED", f"B/L {bl} - {label} khớp sau đối chiếu song ngữ Việt–Anh (căn cứ: \"{res[1]}\"){note}.",
                       key, f"bl:{bl}", f1=mf, f2=bf, v1=mval)
             elif res == "same":
-                c.add(GROUP_CARGO, "PASSED", f"B/L {bl} - {label} khớp{note}.", key, f"bl:{bl}", f1=mf, f2=bf, v1=mval)
+                orig = (mf.get("original_value") or "").strip()
+                kept = (f" - nhân viên đã xác nhận cùng một bên, Excel dùng cách ghi trên B/L (bản tiếng Việt gốc trên Manifest: \"{orig}\")"
+                        if orig and N.norm_text(orig) != N.norm_text(mf["value"] or "") and _is_vietnamese(orig) else "")
+                c.add(GROUP_CARGO, "PASSED", f"B/L {bl} - {label} khớp{note}{kept}.", key, f"bl:{bl}", f1=mf, f2=bf, v1=mval)
             elif res == "language":
-                c.add(GROUP_CARGO, "NEEDS_REVIEW", f"B/L {bl} - {label}: một chứng từ ghi tiếng Việt, một chứng từ ghi tiếng Anh{note} - nhân viên xác nhận "
-                      "cùng một bên.", key, f"bl:{bl}", f1=mf, f2=bf, v1=mval, blocking=False)
+                c.add(GROUP_CARGO, "NEEDS_REVIEW", f"B/L {bl} - {label}: hai chứng từ ghi khác ngôn ngữ (một bản tiếng Việt, một bản tiếng Anh){note} "
+                      "nhưng có khả năng là cùng một bên - nhân viên xác nhận. Nếu xác nhận cùng một bên, file Excel NSW giữ nguyên cách ghi trên B/L.",
+                      key, f"bl:{bl}", f1=mf, f2=bf, v1=mval, blocking=False, check_key=f"lang|{bl}|{key}",
+                      suggestion="Bấm 'Xử lý…' > 'Xác nhận cùng một bên'.")
             elif res == "similar" or key == "description":
                 # descriptions are free text (often another language / more detail): staff compare, no automatic verdict
                 c.add(GROUP_CARGO, "NEEDS_REVIEW", f"B/L {bl} - {label}: cách ghi khác nhau{' (có thể viết tắt)' if res == 'similar' else ' (ngôn ngữ / mức chi tiết khác)'}"

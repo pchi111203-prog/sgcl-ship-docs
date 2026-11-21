@@ -1000,6 +1000,27 @@ def resolve(rid: int, body: ResolveIn, u=Depends(current_user)):
         r = db.row(c, "SELECT * FROM crosscheck_results WHERE id=?", (rid,))
         if not r:
             raise HTTPException(404)
+        if body.action == "same_party":
+            # bilingual values confirmed to be the same party: the declaration keeps the wording of the B/L,
+            # the Vietnamese wording stays as the field's original value and in the history
+            fs = [db.row(c, "SELECT f.*, d.doc_type FROM extracted_fields f JOIN documents d ON d.id=f.document_id WHERE f.id=?", (fid,))
+                  for fid in (r["field1_id"], r["field2_id"]) if fid]
+            bl = next((f for f in fs if f and f["doc_type"] == "BILL_OF_LADING"), None)
+            if not bl:
+                raise HTTPException(400, "Không xác định được giá trị trên B/L")
+            note = (body.note or "").strip() or "Cùng một bên (khác ngôn ngữ) - xuất Excel theo cách ghi trên B/L"
+            for f in fs:
+                if not f:
+                    continue
+                if f["id"] != bl["id"]:
+                    c.execute("UPDATE extracted_fields SET value=?, status='CONFIRMED', confirmed_by=?, confirmed_at=?, updated_at=? WHERE id=?",
+                              (bl["value"], u["username"], db.now(), db.now(), f["id"]))
+                    db.log(c, r["voyage_id"], "SAME_PARTY_BILINGUAL", u["username"], f["id"], f["field_key"], f["value"], bl["value"],
+                           f"{note}. Bản tiếng Việt: {f['original_value'] or f['value']}")
+                else:
+                    c.execute("UPDATE extracted_fields SET status='CONFIRMED', confirmed_by=?, confirmed_at=? WHERE id=?", (u["username"], db.now(), f["id"]))
+            crosscheck.run(c, r["voyage_id"], u["username"])
+            return {"ok": True}
         value = {"use1": r["value1"], "use2": r["value2"], "custom": body.value}.get(body.action)
         if value is None:
             raise HTTPException(400, "Thiếu giá trị")

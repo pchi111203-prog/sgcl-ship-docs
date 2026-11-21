@@ -85,6 +85,7 @@ function ResolveModal({ r, voyageId, onClose, onDone }) {
   const [note, setNote] = useState('')
   const toast = useToast()
   const identity = r.status === 'NEEDS_REVIEW' && (r.message || '').startsWith('Needs Manual Review')
+  const bilingual = (r.check_key || '').startsWith('lang|') && !r.acknowledged
   const canFix = r.field1_id || r.field2_id
   const resolve = async (action) => {
     try {
@@ -108,6 +109,15 @@ function ResolveModal({ r, voyageId, onClose, onDone }) {
         <div><div className="small muted">{r.doc2_name || 'Nguồn so sánh'}{r.page2 ? ` · trang ${r.page2}` : ''}</div><div className="v">{r.value2 || '(trống)'}</div></div>
       </div>
       <div className="field"><label className="f">Ghi chú / lý do (lưu vào lịch sử)</label><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="VD: Đã kiểm tra với bản gốc B/L do hãng tàu cung cấp" /></div>
+      {bilingual && <>
+        <h3>Hai giá trị khác ngôn ngữ – có cùng một bên không?</h3>
+        <p className="small muted" style={{ marginTop: 0 }}>Đối chiếu hai bản ghi ở trên với bản gốc. Nếu là <b>cùng một bên</b>, file Excel NSW sẽ giữ nguyên cách ghi trên <b>B/L</b>;
+          bản tiếng Việt được lưu lại trong lịch sử đối chiếu (Lịch sử xử lý) để truy xuất khi cần.</p>
+        <div className="row" style={{ marginBottom: 10 }}>
+          <button className="btn primary" onClick={() => resolve('same_party')}>Xác nhận cùng một bên – dùng cách ghi trên B/L</button>
+        </div>
+        <p className="small muted">Nếu <b>không phải</b> cùng một bên: chọn giá trị đúng bên dưới hoặc nhập giá trị khác.</p>
+      </>}
       {canFix && r.status !== 'WRONG_VOYAGE' && !identity && <>
         <h3>Chọn giá trị đúng sau khi kiểm tra bản gốc</h3>
         <div className="row" style={{ marginBottom: 10 }}>
