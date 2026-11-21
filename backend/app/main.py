@@ -37,6 +37,53 @@ def startup():
     N.load_codes_from_template(db.TEMPLATE_PATH)
     with db.tx() as c:  # documents interrupted by a restart
         c.execute("UPDATE documents SET status='ERROR', error='Bị gián đoạn khi đang xử lý - hãy xử lý lại' WHERE status='PROCESSING'")
+    _reprocess_after_update()
+
+
+READER_FILES = ("extract.py", "ingest.py", "splitter.py", "normalize.py")
+
+
+def _reader_version():
+    h = hashlib.sha1()
+    for name in READER_FILES:
+        with open(os.path.join(os.path.dirname(__file__), name), "rb") as fh:
+            h.update(fh.read())
+    return h.hexdigest()
+
+
+def _reprocess_after_update():
+    """After an update of the document reading code, read the existing documents again so the improvements apply
+    without staff pressing 'Xử lý lại'. Documents with values edited or confirmed by staff are left untouched,
+    then the cross-check is run again for voyages that had one."""
+    ver = _reader_version()
+    with db.tx() as c:
+        c.execute("CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT)")
+        old = (db.row(c, "SELECT value FROM app_meta WHERE key='reader_version'") or {}).get("value")
+        c.execute("INSERT OR REPLACE INTO app_meta(key,value) VALUES('reader_version',?)", (ver,))
+        if old is None or old == ver:
+            return  # first start: nothing to redo
+        docs = db.rows(c, "SELECT d.id, d.voyage_id FROM documents d WHERE d.parent_id IS NULL AND d.status IN ('EXTRACTED','ERROR','SPLIT') "
+                          "AND NOT EXISTS (SELECT 1 FROM extracted_fields f JOIN documents x ON x.id=f.document_id "
+                          "WHERE (x.id=d.id OR x.parent_id=d.id) AND f.status IN ('EDITED','CONFIRMED')) ORDER BY d.voyage_id, d.id")
+        for d in docs:
+            c.execute("UPDATE documents SET status='PROCESSING', error=NULL WHERE id=?", (d["id"],))
+    if not docs:
+        return
+
+    def work():
+        voyages = []
+        for d in docs:
+            process_document(d["id"], "Hệ thống (cập nhật)")
+            if d["voyage_id"] not in voyages:
+                voyages.append(d["voyage_id"])
+        for vid in voyages:
+            try:
+                with db.tx() as c:
+                    if db.row(c, "SELECT id FROM crosscheck_runs WHERE voyage_id=?", (vid,)):
+                        crosscheck.run(c, vid, "Hệ thống (cập nhật)")
+            except Exception:
+                traceback.print_exc()
+    threading.Thread(target=work, daemon=True).start()
 
 
 # ------------------------------------------------------------------ auth
