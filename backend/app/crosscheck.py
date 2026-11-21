@@ -99,7 +99,10 @@ def _cmp_flag(a, b):
     sa, sb = N.suggest_state(a), N.suggest_state(b)
     if sa and sb:
         return sa == sb
-    return _cmp_text(a, b)
+    # "VIỆT NAM (VIET NAM)" vs "Việt Nam": same country written with/without spaces, accents or a translation in brackets
+    ka = [N.norm_text(x).replace(" ", "") for x in re.split(r"[()]", a or "") if x.strip()]
+    kb = [N.norm_text(x).replace(" ", "") for x in re.split(r"[()]", b or "") if x.strip()]
+    return _cmp_text(a, b) or bool(set(ka) & set(kb))
 
 
 def _cmp_date(a, b):

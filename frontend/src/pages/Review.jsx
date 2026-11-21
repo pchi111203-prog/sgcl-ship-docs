@@ -283,7 +283,7 @@ function VesselSummary({ voyageId, reload }) {
             <td className="small">{r.sources.map((s, i) => <div key={i}><span className="mono">{s.value}</span> <span className="muted">· {s.original_name} tr.{s.page_no}</span></div>)}</td>
             <td><Badge map={SUM_STATUS} value={st} /></td>
             <td className="small">{r.applicable ? (r.current || <span className="faint">(trống)</span>) : <span className="faint">không lưu ở hồ sơ chuyến</span>}
-              {r.applicable && r.current && r.value && r.current.toUpperCase() !== r.value.toUpperCase() && <div><span className="badge b-amber">khác hồ sơ</span></div>}</td></tr>
+              {r.applicable && r.current && r.value && !r.same_as_profile && <div><span className="badge b-amber" title="Hồ sơ chuyến (nhập lúc tạo chuyến) ghi khác giá trị trong chứng từ. Bấm 'Cập nhật hồ sơ chuyến từ giá trị thống nhất' để lấy theo chứng từ.">khác hồ sơ</span></div>}</td></tr>
         })}
       </tbody></table>
     </div>

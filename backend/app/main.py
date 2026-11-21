@@ -426,7 +426,9 @@ def profile_suggestions(vid: int, u=Depends(current_user)):
                     groups.append([f["value"]])
             vals = {g[0]: g[0] for g in groups}
             out.append({"key": k, "label": extract.FIELD_LABELS.get(k, k), "current": v.get(k), "sources": fs, "applicable": k in VOYAGE_COLS,
-                        "value": next(iter(vals.values())) if len(vals) == 1 else None, "conflict": len(vals) > 1})
+                        "value": next(iter(vals.values())) if len(vals) == 1 else None, "conflict": len(vals) > 1,
+                        # same meaning as the voyage record ("MV HTP OCEAN" = "HTP OCEAN", "Việt Nam" = "VIỆT NAM (VIET NAM)")
+                        "same_as_profile": bool(v.get(k) and len(vals) == 1 and cmp(v.get(k), next(iter(vals.values()))))})
     return out
 
 
