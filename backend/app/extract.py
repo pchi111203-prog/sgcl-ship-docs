@@ -912,7 +912,9 @@ def extract_document(doc_type, pages):
             for p in pages:
                 got = by_page.get(p["page_no"], [])
                 if p["method"] == "ocr":
-                    lr = extract_ocr_crew_rows(p)
+                    # the reading (of the alternative OCR readings of a weak scan) that yields the most crew rows
+                    lr = max((extract_ocr_crew_rows({**p, "text": t}) for t in [p["text"]] + list(p.get("alt_texts") or [])),
+                             key=lambda rs: (len(rs), sum(len(r["fields"]) for r in rs)))
                     good = [r for r in got if "passport_no" in r["fields"] and _PASSPORT.search(r["fields"]["passport_no"]["value"] or "")]
                     if len(lr) > len(good):
                         got = lr

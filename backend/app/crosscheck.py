@@ -527,8 +527,12 @@ def check_crew(c: Ctx):
         if k == n:
             c.add(GROUP_CREW, "PASSED", f"Số thuyền viên khớp: {c.doc_name(f['document_id'])} = {k}, Crew List = {n} dòng.", "crew_count", f1=f, v2=str(n))
         else:
-            c.add(GROUP_CREW, "MISMATCH", f"Số thuyền viên: {c.doc_name(f['document_id'])} ghi {k}, Crew List có {n} dòng.", "crew_count", f1=f, v2=str(n),
-                  doc2=crew_docs[0]["id"], suggestion="Kiểm tra Crew List có thiếu/thừa dòng hoặc trích xuất bỏ sót trang.")
+            scanned = any("ocr" in (d.get("extraction_method") or "") for d in crew_docs)
+            c.add(GROUP_CREW, "MISMATCH", f"Số thuyền viên: {c.doc_name(f['document_id'])} ghi {k}, Crew List có {n} dòng"
+                  + (f" đọc được (Crew List là bản scan - OCR có thể đã bỏ sót {k - n} dòng)." if scanned and k > n else "."),
+                  "crew_count", f1=f, v2=str(n), doc2=crew_docs[0]["id"],
+                  suggestion=("So với bản gốc Crew List rồi thêm dòng thuyền viên còn thiếu tại Kiểm tra & xác nhận > Thuyền viên."
+                              if scanned and k > n else "Kiểm tra Crew List có thiếu/thừa dòng hoặc trích xuất bỏ sót trang."))
     seen_pp, seen_nm = {}, {}
     eta = (c.header("eta") or [None])[0]
     eta_d, _ = N.parse_date(eta["value"]) if eta else (None, False)

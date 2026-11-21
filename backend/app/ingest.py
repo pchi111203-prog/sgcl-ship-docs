@@ -81,7 +81,7 @@ def _ocr_image(img):
             rot = _ocr_best(img.rotate(-angle, expand=True), lang)
             if rot[1] > res[1]:
                 res = rot
-    return res
+    return res  # (text, conf, words, alternative texts)
 
 
 def _otsu(img):
@@ -104,12 +104,19 @@ def _otsu(img):
 
 
 def _ocr_best(img, lang):
+    """Best reading + the texts of the other readings (alternatives): a table row missed in one reading of a
+    weak scan is often present in another, extraction can pick the reading that yields the most rows."""
     res = _ocr_pass(img, lang)
+    alts = []
     if res[1] < 0.85:  # weak reading: try the black/white version and keep the better one
         bw = _ocr_pass(_otsu(img), lang)
         if bw[1] > res[1]:
-            res = bw
-    return res
+            res, bw = bw, res
+        alts.append(bw[0])
+        w, h = img.size  # a slightly different scale gives tesseract another chance on small print
+        sc = _ocr_pass(_otsu(img.resize((int(w * 0.8), int(h * 0.8)))), lang)
+        alts.append(sc[0])
+    return (*res, alts)
 
 
 def _ocr_pass(img, lang):
@@ -160,9 +167,9 @@ def _pdf_pages(path):
             img = Image.frombytes("L", (pix.width, pix.height), pix.samples)
             del pix
             with OCR_LOCK:  # one OCR at a time: bounded memory on small servers
-                t, conf, words = _ocr_image(img)
+                t, conf, words, alts = _ocr_image(img)
             del img
-            pages.append({"page_no": i + 1, "text": t, "method": "ocr", "confidence": conf, "tables": [], "words": words})
+            pages.append({"page_no": i + 1, "text": t, "method": "ocr", "confidence": conf, "tables": [], "words": words, "alt_texts": alts})
     return pages
 
 
@@ -222,8 +229,8 @@ def _image_pages(path):
     for i in range(n):  # multi-page TIFF
         img.seek(i)
         with OCR_LOCK:
-            t, conf, words = _ocr_image(img.copy())
-        pages.append({"page_no": i + 1, "text": t, "method": "ocr", "confidence": conf, "tables": [], "words": words})
+            t, conf, words, alts = _ocr_image(img.copy())
+        pages.append({"page_no": i + 1, "text": t, "method": "ocr", "confidence": conf, "tables": [], "words": words, "alt_texts": alts})
     return pages
 
 
