@@ -353,6 +353,10 @@ def profile_suggestions(vid: int, u=Depends(current_user)):
                             f"WHERE f.voyage_id=? AND f.status!='EXCLUDED' AND f.section='vessel' AND f.record_key='header' AND f.field_key=? AND d.doc_type IN ({','.join('?' * len(types))})",
                          (vid, k, *types))
             # group values with the SAME comparison as the cross-check ('4,353 GT' = '4,353', 'MV X' = 'X', 'VIỆT NAM' = 'VIETNAM')
+            if not fs:  # not in the main documents: any other declaration of this voyage that states it
+                fs = [f for f in db.rows(c, "SELECT f.value, f.status, d.original_name, d.doc_type, f.page_no FROM extracted_fields f JOIN documents d "
+                                            "ON d.id=f.document_id WHERE f.voyage_id=? AND f.status!='EXCLUDED' AND f.section='vessel' AND "
+                                            "f.record_key='header' AND f.field_key=? AND d.doc_type NOT IN ('OTHER','REFERENCE')", (vid, k))]
             prio = {t: i for i, t in enumerate(types)}
             fs.sort(key=lambda f: prio.get(f["doc_type"], 99))
             cmp = crosscheck.COMPARATORS.get(k, lambda a, b: N.norm_text(a) == N.norm_text(b))

@@ -30,14 +30,14 @@ export function VoyageList({ user }) {
           <label className="row small"><input type="checkbox" checked={showSample} onChange={(e) => setShowSample(e.target.checked)} style={{ width: 'auto' }} /> Hiện chuyến dữ liệu mẫu</label>
         </div>
         <table className="t">
-          <thead><tr><th>Mã chuyến</th><th>Tên tàu</th><th>IMO</th><th>Call sign</th><th>Voyage</th><th>Cảng rời cuối → Cảng đến</th><th>ETA</th><th>Chứng từ</th><th>Trạng thái</th><th style={{ width: 130 }}>Tiến độ</th><th /></tr></thead>
+          <thead><tr><th>Mã chuyến</th><th>Tên tàu</th><th>IMO</th><th>Call sign</th><th>Voyage</th><th>Cảng đến</th><th>ETA</th><th>Chứng từ</th><th>Trạng thái</th><th style={{ width: 130 }}>Tiến độ</th><th /></tr></thead>
           <tbody>
             {rows.map((v) => (
               <tr key={v.id}>
                 <td className="mono"><Link to={`/voyages/${v.id}/documents`}>{v.voyage_code}</Link></td>
                 <td><b>{v.vessel_name || '—'}</b> {v.is_sample ? <span className="badge b-sample">MẪU</span> : null}</td>
                 <td>{v.imo || '—'}</td><td>{v.call_sign || '—'}</td><td>{v.voyage_no || '—'}</td>
-                <td className="small">{v.last_port || '—'} → {v.port_of_arrival || '—'}</td><td className="small">{v.eta || '—'}</td>
+                <td className="small">{v.port_of_arrival || '—'}</td><td className="small">{v.eta || '—'}</td>
                 <td>{v.progress.documents}</td><td><Badge map={VOYAGE_STATUS} value={v.progress.status} /></td>
                 <td title={v.progress.steps.filter((s) => !s.done).map((s) => `${s.label}: ${s.why}`).join('\n') || 'Hoàn thành'}><Progress value={v.progress.progress} /></td>
                 <td className="right" style={{ whiteSpace: 'nowrap' }}>
@@ -122,9 +122,8 @@ export function VoyageForm() {
         </div>
         <div className="card">
           <h2>Thông tin chuyến</h2>
-          <div className="grid g2">{inp('voyage_no', 'Voyage Number')}{inp('cargo_type', 'Cargo Type – Loại hàng')}</div>
-          <div className="grid g3">{inp('last_port', 'Last Port – Cảng rời cuối')}{inp('port_of_arrival', 'Cảng đến')}{inp('next_port', 'Next Port – Cảng tiếp theo')}</div>
-          <div className="grid g2">{inp('eta', 'ETA', 'dd/mm/yyyy hh:mm')}{inp('etd', 'ETD', 'dd/mm/yyyy hh:mm')}</div>
+          <div className="grid g3">{inp('voyage_no', 'Voyage Number')}{inp('port_of_arrival', 'Cảng đến')}{inp('eta', 'ETA', 'dd/mm/yyyy hh:mm')}</div>
+          <div className="hint" style={{ marginBottom: 12 }}>Cảng rời cuối, cảng tiếp theo, ETD và loại hàng không cần nhập: hệ thống lấy từ chứng từ (GD, NOA, Manifest…) và điền vào file Excel.</div>
           <div className="field"><label className="f">Ghi chú</label><textarea rows={3} value={f.notes || ''} onChange={set('notes')} /></div>
         </div>
       </div>

@@ -242,6 +242,9 @@ def build_plan(conn, voyage_id):
             elif kind == "src":
                 key, tr = rest[0], (rest[1] if len(rest) > 1 else None)
                 fs = data.header(key, types)
+                if not fs:  # not in the main documents of this sheet: take it from any other declaration that states it
+                    others = [t for t in {data.dtype(f) for f in data.fields} if t not in types and t not in ("OTHER", "REFERENCE", "MANUAL")]
+                    fs = data.header(key, sorted(others))
                 if not fs:
                     plan.empty.append(f"{sheet}!{ref} - {label} (Not Available in Source)")
                     continue

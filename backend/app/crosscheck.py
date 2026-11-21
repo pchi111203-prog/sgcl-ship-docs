@@ -127,7 +127,8 @@ VESSEL_CHECKS = [
     ("imo", _cmp_id, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "TONNAGE_CERTIFICATE"]),
     ("call_sign", _cmp_id, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "TONNAGE_CERTIFICATE"]),
     ("flag", _cmp_flag, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "TONNAGE_CERTIFICATE"]),
-    ("voyage_no", _cmp_id, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL"]),
+    ("voyage_no", _cmp_id, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "CARGO_MANIFEST", "BILL_OF_LADING", "CREW_LIST", "DG_MANIFEST",
+                            "CREW_EFFECTS", "SHIP_STORES", "PASSENGER_LIST", "HEALTH_DECLARATION", "SHIP_SECURITY"]),
     ("gross_tonnage", _cmp_number, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "TONNAGE_CERTIFICATE"]),
     ("net_tonnage", _cmp_number, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL", "TONNAGE_CERTIFICATE"]),
     ("eta", _cmp_date, ["GENERAL_DECLARATION", "NOTICE_OF_ARRIVAL"]),
@@ -198,8 +199,10 @@ def check_vessel(c: Ctx):
     for key, cmp, types in VESSEL_CHECKS:
         label = FIELD_LABELS.get(key, key)
         vals = c.header(key, types)
+        if not vals:  # not in the main documents: any other declaration that states it (e.g. ETA on the crew list)
+            vals = [f for f in c.header(key) if c.doc_type(f) not in ("OTHER", "REFERENCE", "MANUAL")]
         if not vals:
-            c.add(GROUP_VESSEL, "NOT_AVAILABLE", f"{label}: Not Available in Source - không có trong GD/NOA/Tonnage Certificate.", key, "header")
+            c.add(GROUP_VESSEL, "NOT_AVAILABLE", f"{label}: Not Available in Source - không chứng từ nào ghi.", key, "header")
             continue
         if key == "imo":
             for f in vals:
