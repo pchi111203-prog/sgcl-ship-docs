@@ -133,7 +133,7 @@ function EditCell({ f, save, wide }) {
     <div>
       <input className="cell" value={v} style={style} onChange={(e) => setV(e.target.value)} onBlur={() => save(f, v)} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
         title={`Nguồn: ${f.doc_name || 'Nhập tay'}${f.page_no ? ` – trang ${f.page_no}` : ''} · ${f.method || ''}`} />
-      {f.original_value != null && f.original_value !== f.value && <div className="orig" title="Giá trị gốc trong chứng từ">{f.original_value}</div>}
+      {f.original_value != null && f.original_value !== f.value && <div className="orig" style={{ textDecoration: 'none' }} title="Chữ đọc được trong chứng từ. Giá trị trong ô phía trên (đã chuẩn hóa / đã sửa / đã xác nhận) là giá trị ghi vào Excel; bản gốc vẫn được lưu để tra cứu.">Gốc trong chứng từ: {f.original_value}</div>}
     </div>
   )
 }
