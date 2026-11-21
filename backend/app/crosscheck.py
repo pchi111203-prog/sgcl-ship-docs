@@ -40,6 +40,17 @@ def _company_key(s):
     return re.sub(r"\s+", " ", k).strip()
 
 
+_ADDRESS_START = re.compile(r",|\b(JL|JLN|JALAN|NO|LOT|STREET|ST|ROAD|RD|AVENUE|AVE|BUILDING|BLDG|FLOOR|DIA CHI|ADDRESS|ADD|TEL|FAX|MST|"
+                            r"SO|DUONG|PHUONG|QUAN|HUYEN|KCN|TOA NHA)\b")
+
+
+def _company_name(s):
+    """Company name without its address: 'PT. NUSANTARA AGRO GRAINS Jl. Perak Timur No. 112' -> 'PT NUSANTARA AGRO GRAINS'."""
+    t = N.strip_accents(str(s or "")).upper()
+    t = re.sub(r"\.", " ", t)
+    return re.sub(r"\s+", " ", _ADDRESS_START.split(t, maxsplit=1)[0]).strip()
+
+
 def _is_vietnamese(s):
     return bool(re.search(r"[ăâđêôơưĂÂĐÊÔƠƯàảãáạằẳẵắặầẩẫấậèẻẽéẹềểễếệìỉĩíịòỏõóọồổỗốộờởỡớợùủũúụừửữứựỳỷỹýỵ]", s or ""))
 
@@ -274,19 +285,25 @@ def _cargo_cmp(kind, a, b):
         ka, kb = _company_key(a), _company_key(b)
         if ka == kb:
             return "same"
+        na, nb = _company_name(a), _company_name(b)
+        if na and na == nb and len(na.split()) >= 2:
+            return "same"  # same company; only the address part is written differently
         if ka and kb and (ka.startswith(kb) or kb.startswith(ka)):
             return "similar"
         wa, wb = set(ka.split()), set(kb.split())
         if wa and wb and len(wa & wb) >= 0.5 * min(len(wa), len(wb)):
             return "similar"  # same party, address written differently
         if _is_vietnamese(a) != _is_vietnamese(b):
-            return "language"  # one side in Vietnamese, the other in English: cannot be compared automatically
+            return ("bilingual", N.bilingual_match(a, b)) if N.bilingual_match(a, b) else "language"
         return "diff"
     if kind == "text":
         if _cmp_text(a, b):
             return "same"
         ka, kb = N.norm_text(a), N.norm_text(b)
-        return "similar" if ka and kb and (ka in kb or kb in ka) else "diff"
+        if ka and kb and (ka in kb or kb in ka):
+            return "similar"
+        ev = N.bilingual_match(a, b)
+        return ("bilingual", ev) if ev else "diff"
     if kind in ("number", "weight"):
         return "same" if _cmp_number(a, b) else "diff"
     if kind == "set":
@@ -376,7 +393,10 @@ def check_cargo(c: Ctx):
                 mf = mvals[0]
                 mval = _with_unit(rows[0], key) if kind in ("number", "weight") else mf["value"]
                 res, note = _cargo_cmp(kind, _with_unit(b, key) if kind in ("number", "weight") else bf["value"], mval), ""
-            if res == "same":
+            if isinstance(res, tuple):
+                c.add(GROUP_CARGO, "PASSED", f"B/L {bl} - {label} khớp sau đối chiếu song ngữ Việt–Anh (căn cứ: \"{res[1]}\"){note}.",
+                      key, f"bl:{bl}", f1=mf, f2=bf, v1=mval)
+            elif res == "same":
                 c.add(GROUP_CARGO, "PASSED", f"B/L {bl} - {label} khớp{note}.", key, f"bl:{bl}", f1=mf, f2=bf, v1=mval)
             elif res == "language":
                 c.add(GROUP_CARGO, "NEEDS_REVIEW", f"B/L {bl} - {label}: một chứng từ ghi tiếng Việt, một chứng từ ghi tiếng Anh{note} - nhân viên xác nhận "
@@ -492,6 +512,8 @@ def check_dg(c: Ctx):
                 continue
             res = _cargo_cmp(kind, _with_unit(r, key) if kind == "weight" else df["value"], _with_unit(rows[0], dkey) if kind == "weight" else mf["value"])
             lbl = FIELD_LABELS.get(key, key)
+            if isinstance(res, tuple):
+                res = "same"
             if res == "same":
                 c.add(GROUP_DG, "PASSED", f"B/L {blf['value']} - {lbl} khớp giữa DG Manifest và Cargo Manifest/B/L.", key, rk, f1=df, f2=mf)
             elif res == "similar" or kind == "text":

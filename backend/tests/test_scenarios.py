@@ -441,4 +441,28 @@ def test_vietnamese_forms_and_bilingual_values():
     assert fields["passport_no"]["value"] == "C6829104" and fields["passport_expiry"]["value"] == "12/08/2029"
     assert _cmp_port("Cảng Quốc tế Long An", "LONG AN INTERNATIONAL PORT, VIETNAM")
     assert not _cmp_port("Cảng Quốc tế Long An", "CAT LAI PORT, HO CHI MINH")
-    assert _cargo_cmp("company", "Theo lệnh Ngân hàng TMCP Ngoại thương Việt Nam", "TO THE ORDER OF JOINT STOCK COMMERCIAL BANK FOR FOREIGN TRADE OF VIETNAM") == "language"
+    assert isinstance(_cargo_cmp("company", "Theo lệnh Ngân hàng TMCP Ngoại thương Việt Nam", "TO THE ORDER OF JOINT STOCK COMMERCIAL BANK FOR FOREIGN TRADE OF VIETNAM"), tuple)
+
+
+
+def test_bilingual_party_and_goods_match():
+    from app import normalize as N
+    from app.crosscheck import _cargo_cmp
+    vi_cons = ("Theo lệnh Ngân hàng TMCP Ngoại thương Việt Nam (Vietcombank) CN Long An. Bên thông báo: Công ty TNHH Thức ăn Chăn nuôi "
+               "Đại Phát KCN Thuận Đạo, Bến Lức, Long An MST: 1101849205")
+    en_cons = "TO THE ORDER OF JOINT STOCK COMMERCIAL BANK FOR FOREIGN TRADE OF VIETNAM (VIETCOMBANK), LONG AN BRANCH"
+    r = _cargo_cmp("company", vi_cons, en_cons)
+    assert isinstance(r, tuple), r
+    vi_desc = "Ngô hạt vàng rời dùng làm thức ăn chăn nuôi (Yellow Corn in bulk) Trọng lượng: 5,800.00 MT"
+    en_desc = "YELLOW CORN IN BULK (Animal Feed Raw Material) PACKING: IN BULK (Stowed in Holds No. 1, 2 & 3) CLEAN SHIPPED ON BOARD"
+    assert isinstance(_cargo_cmp("text", vi_desc, en_desc), tuple)
+    # different goods / different bank must NOT match
+    assert not isinstance(_cargo_cmp("text", "Gạo trắng đóng bao", en_desc), tuple)
+    assert _cargo_cmp("company", "Theo lệnh Ngân hàng TMCP Công Thương Việt Nam (Vietinbank)", en_cons) == "language"
+
+
+
+def test_same_company_different_address():
+    from app.crosscheck import _cargo_cmp
+    assert _cargo_cmp("company", "PT. NUSANTARA AGRO GRAINS Jl. Perak Timur No.", "PT. NUSANTARA AGRO GRAINS Jl. Perak Timur No. 112, Surabaya, East Java") == "same"
+    assert _cargo_cmp("company", "PT. NUSANTARA AGRO GRAINS Jl. Perak Timur", "PT. SURYA AGRO GRAINS Jl. Perak Timur") != "same"

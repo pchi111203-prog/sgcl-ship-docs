@@ -367,3 +367,56 @@ def vessel_key(s):
     t = strip_accents(str(s or "")).strip()
     t = _VESSEL_PREFIX.sub("", t)
     return norm_text(t)
+
+
+# ---------------------------------------------------------------- Vietnamese <-> English shipping terms
+# Used only to COMPARE free text written in two languages (parties, goods descriptions). Extend as needed.
+# Keys/values are accent-free upper case; longer phrases are applied first.
+GLOSSARY_VI_EN = {
+    "THEO LENH CUA": "TO THE ORDER OF", "THEO LENH": "TO THE ORDER OF", "GIAO THEO LENH": "TO THE ORDER OF",
+    "NGAN HANG THUONG MAI CO PHAN": "JOINT STOCK COMMERCIAL BANK", "NGAN HANG TMCP": "JOINT STOCK COMMERCIAL BANK",
+    "NGAN HANG": "BANK", "TMCP": "JOINT STOCK COMMERCIAL", "THUONG MAI CO PHAN": "JOINT STOCK COMMERCIAL", "CO PHAN": "JOINT STOCK",
+    "NGOAI THUONG": "FOREIGN TRADE", "CONG THUONG": "INDUSTRY AND TRADE", "DAU TU VA PHAT TRIEN": "INVESTMENT AND DEVELOPMENT",
+    "NONG NGHIEP VA PHAT TRIEN NONG THON": "AGRICULTURE AND RURAL DEVELOPMENT", "VIET NAM": "VIETNAM", "CHI NHANH": "BRANCH", "CN": "BRANCH",
+    "CONG TY TNHH": "COMPANY LIMITED", "CONG TY CO PHAN": "JOINT STOCK COMPANY", "CONG TY": "COMPANY", "TNHH": "LIMITED",
+    "XUAT NHAP KHAU": "IMPORT EXPORT", "THUONG MAI": "TRADING", "DICH VU": "SERVICE", "VAN TAI BIEN": "SHIPPING", "VAN TAI": "TRANSPORT",
+    "NGO HAT VANG": "YELLOW CORN", "NGO HAT": "CORN", "NGO": "CORN", "LUA MI": "WHEAT", "GAO": "RICE", "DAU NANH": "SOYBEAN",
+    "BA DAU NANH": "SOYBEAN MEAL", "KHO DAU": "SOYBEAN MEAL", "SAN LAT": "CASSAVA CHIPS", "SAN": "CASSAVA", "DUONG": "SUGAR",
+    "PHAN BON": "FERTILIZER", "PHAN URE": "UREA", "URE": "UREA", "XI MANG": "CEMENT", "CLINKER": "CLINKER", "THAN DA": "COAL", "THAN": "COAL",
+    "QUANG SAT": "IRON ORE", "THEP CUON": "STEEL COILS", "THEP": "STEEL", "SAT": "IRON", "GO": "TIMBER", "DAM GO": "WOOD CHIPS",
+    "MUOI": "SALT", "CAT": "SAND", "DA": "STONE", "THUC AN CHAN NUOI": "ANIMAL FEED", "THUC AN GIA SUC": "ANIMAL FEED",
+    "NGUYEN LIEU": "RAW MATERIAL", "HANG ROI": "IN BULK", "ROI": "BULK", "DONG BAO": "IN BAGS", "BAO": "BAGS", "CONTAINER": "CONTAINER",
+}
+_GLOSS = sorted(GLOSSARY_VI_EN.items(), key=lambda kv: -len(kv[0]))
+_STOP = {"TO", "THE", "OF", "AND", "IN", "FOR", "ON", "AT", "BY", "A", "AN", "ORDER", "CO", "LTD", "LIMITED", "COMPANY", "JSC", "BRANCH",
+         "INC", "CORP", "PTE", "PT", "TBK", "NO", "ST", "STREET", "ROAD", "WARD", "DIST", "DISTRICT", "CITY", "PROVINCE", "MST", "TAX",
+         "CODE", "ADDRESS", "TEL", "FAX", "DUNG", "LAM", "HAT", "LOAI", "HANG", "VA", "CUA", "TAI", "SO"}
+
+
+def to_english_terms(s):
+    """Accent-free upper text with known Vietnamese shipping phrases replaced by their English equivalent."""
+    t = " " + norm_text(s) + " "
+    for vi, en in _GLOSS:
+        t = t.replace(f" {vi} ", f" {en} ")
+    return t.strip()
+
+
+def significant_words(s):
+    return {w for w in to_english_terms(s).split() if w not in _STOP and len(w) > 1 and not w.isdigit()}
+
+
+def bilingual_match(a, b):
+    """Evidence that two texts in different languages name the same thing, else None.
+    1) the main phrase (before '(' / ':' / ';' / ',') of one side, translated, is contained in the other side;
+    2) a translation/brand written in brackets on one side, e.g. '(Yellow Corn in bulk)', '(Vietcombank)', is found on the other."""
+    wa, wb = significant_words(a), significant_words(b)
+    for x, ywords in ((a, wb), (b, wa)):
+        head = re.split(r"[(:;,.]|\s-\s|\bPACKING\b", str(x or ""), maxsplit=1, flags=re.I)[0]
+        hw = significant_words(head)
+        if len(hw) >= 2 and hw <= ywords:
+            return " ".join(w for w in to_english_terms(head).split() if w in hw)
+        for inner in re.findall(r"\(([^)]{3,80})\)", str(x or "")):
+            iw = significant_words(inner)
+            if iw and iw <= ywords and (len(iw) >= 2 or any(len(w) >= 7 for w in iw)):
+                return inner.strip()
+    return None
