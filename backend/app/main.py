@@ -46,6 +46,20 @@ def startup():
     for did in again:
         POOL.submit(process_document, did, "Hệ thống (đọc lại sau khi khởi động lại)")
     _reprocess_after_update()
+    _normalise_stored_values()
+
+
+def _normalise_stored_values():
+    """Value rules added later also apply to documents read before (and to documents kept from re-reading because
+    staff confirmed something in them): crew's effects with nothing to declare -> NIL. The wording read stays as
+    the original value."""
+    with db.tx() as c:
+        for f in db.rows(c, "SELECT id, voyage_id, value FROM extracted_fields WHERE section='effects' AND field_key='effects' "
+                            "AND value IS NOT NULL AND value!='NIL'"):
+            if N.nil_if_nothing(f["value"]) == "NIL":
+                c.execute("UPDATE extracted_fields SET value='NIL' WHERE id=?", (f["id"],))
+                db.log(c, f["voyage_id"], "AUTO_NIL_EFFECTS", "Hệ thống (cập nhật)", f["id"], "effects", f["value"], "NIL",
+                       "Không có hành lý phải khai -> NIL (theo quy ước NSW)")
 
 
 READER_FILES = ("extract.py", "ingest.py", "splitter.py", "normalize.py")
@@ -73,6 +87,12 @@ def _reprocess_after_update():
         docs = db.rows(c, "SELECT d.id, d.voyage_id FROM documents d WHERE d.parent_id IS NULL AND d.status IN ('EXTRACTED','ERROR','SPLIT') "
                           "AND NOT EXISTS (SELECT 1 FROM extracted_fields f JOIN documents x ON x.id=f.document_id "
                           "WHERE (x.id=d.id OR x.parent_id=d.id) AND f.status IN ('EDITED','CONFIRMED')) ORDER BY d.voyage_id, d.id")
+        # combined files where staff confirmed something in some parts: read again only the untouched parts
+        parts = db.rows(c, "SELECT x.id, x.voyage_id FROM documents x JOIN documents p ON p.id=x.parent_id WHERE p.status='SPLIT' "
+                           "AND x.status IN ('EXTRACTED','ERROR') AND x.pages_cache IS NOT NULL "
+                           "AND p.id NOT IN (%s) AND NOT EXISTS (SELECT 1 FROM extracted_fields f WHERE f.document_id=x.id "
+                           "AND f.status IN ('EDITED','CONFIRMED'))" % (",".join(str(d["id"]) for d in docs) or "0"))
+        docs += parts
         for d in docs:
             c.execute("UPDATE documents SET status='PROCESSING', error=NULL WHERE id=?", (d["id"],))
     if not docs:
