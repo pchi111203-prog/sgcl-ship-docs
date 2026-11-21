@@ -60,8 +60,8 @@ def _reprocess_after_update():
         c.execute("CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT)")
         old = (db.row(c, "SELECT value FROM app_meta WHERE key='reader_version'") or {}).get("value")
         c.execute("INSERT OR REPLACE INTO app_meta(key,value) VALUES('reader_version',?)", (ver,))
-        if old is None or old == ver:
-            return  # first start: nothing to redo
+        if old == ver:
+            return  # same reading code: nothing to redo (a new installation has no documents yet)
         docs = db.rows(c, "SELECT d.id, d.voyage_id FROM documents d WHERE d.parent_id IS NULL AND d.status IN ('EXTRACTED','ERROR','SPLIT') "
                           "AND NOT EXISTS (SELECT 1 FROM extracted_fields f JOIN documents x ON x.id=f.document_id "
                           "WHERE (x.id=d.id OR x.parent_id=d.id) AND f.status IN ('EDITED','CONFIRMED')) ORDER BY d.voyage_id, d.id")
