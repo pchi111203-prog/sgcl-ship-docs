@@ -167,7 +167,7 @@ H = {
     "bl_no": ("B/L No.", [r"b\s*/\s*l\s*(no\.?|number|nr)", r"bill\s+of\s+lading\s+(no\.?|number)", r"\bbl\s*(no\.?|number)", r"s[oố]\s+v[aậ]n\s+[dđ][oơ]n"]),
     "shipper": ("Shipper", [r"\bshipper\b(\s*/\s*exporter)?", r"consignor", r"ng[uư][oờ]i\s+g[uử]i\s+h[aà]ng"]),
     "consignee": ("Consignee", [r"\bconsignee\b", r"ng[uư][oờ]i\s+nh[aậ]n\s+h[aà]ng"]),
-    "notify": ("Notify party", [r"notify\s+part(y|ies)", r"notify\s+address", r"also\s+notify", r"\bnotify\b"]),
+    "notify": ("Notify party", [r"notify\s+part(y|ies)", r"notify\s+address", r"also\s+notify", r"\bnotify\b", r"^\s*notify\w*"]),  # OCR: 'Notifyaddess~~...' 
     "packages": ("Number of packages", [r"(no\.?|number)\s+of\s+(packages|pkgs)", r"total\s+(no\.?\s+of\s+)?packages", r"\bpackages\b(?=\s*[:\-])", r"quantity(?=\s*[:\-])"]),
     "gross_weight": ("Gross weight", [r"gross\s+weight", r"\bg\s*\.?\s*w\.?\b(?=\s*[:\-\s]\s*\d)", r"total\s+weight"]),
     "net_weight": ("Net weight", [r"net\s+weight", r"\bn\s*\.?\s*w\.?\b(?=\s*[:\-\s]\s*\d)"]),
@@ -424,6 +424,8 @@ def extract_header(pages, keys, all_keys=None):
                 if k not in keys or k in found:
                     continue
                 val = values_inline[j]
+                if k in MULTILINE_PARTY and val and sum(ch.isalnum() or ch.isspace() for ch in val) < len(val) * 0.75:
+                    val = ""  # scanner noise after the label (box lines read as '~~S~SCS*'): the party is on the next lines
                 method = page["method"]
                 if method == "ocr" and val:
                     val = re.split(r"\s{3,}| [|©™¬“”] ", val)[0]
@@ -436,7 +438,16 @@ def extract_header(pages, keys, all_keys=None):
                         if _label_hits(lines[nl], all_keys):
                             break
                         piece = _merge_comma_cols(re.split(r"\s{3,}", raw_lines[nl].strip()))
-                        nxt.append(piece[0] if not (nxt and k in MULTILINE_PARTY) else " ".join(piece))
+                        if k in MULTILINE_PARTY and not nxt:
+                            first = piece[0]
+                            for s in piece[1:]:  # a party name split by a wide gap ('PHUONG TRANG IMPORT EXPORT   INVESTMENT JOINT STOCK COMPANY')
+                                if re.search(r"(CO\.?,?\s*LTD\.?|COMPANY|JSC|CORP\w*|LIMITED|BRANCH|INC\.?|BANK)\s*$", first, re.I) or not s.isupper() \
+                                        or _label_hits(_fold(s), all_keys):
+                                    break
+                                first += " " + s
+                            nxt.append(first)
+                        else:
+                            nxt.append(piece[0] if not (nxt and k in MULTILINE_PARTY) else " ".join(piece))
                         # a party name broken over lines ("... BANK FOR" / "FOREIGN TRADE OF VIETNAM, NGHE AN BRANCH")
                         if k not in MULTILINE_PARTY or len(nxt) >= 3 or not re.search(r"(\b(FOR|OF|AND|THE|TO)|[,&\-])\s*$", nxt[-1], re.I):
                             break
