@@ -303,6 +303,13 @@ def build_plan(conn, voyage_id):
                         m = re.search(r"[123]", v or "")
                         v = m.group(0) if m else v
                     vals.setdefault(N.norm_text(v), (v, f))
+                if len(vals) > 1 and key in OPERATION_KEYS:
+                    # port-call facts written in several documents (plan, notice, SOF): the first source in priority order is used
+                    first = next(iter(vals.values()))
+                    plan.warnings.append(f"{sheet}!{ref} ({label}): các chứng từ ghi khác nhau - đã dùng '{first[0]}' "
+                                         f"({data.docs[first[1]['document_id']]['original_name']}); giá trị khác: "
+                                         + " / ".join(f"'{v}'" for v, _ in list(vals.values())[1:]) + ". Sửa ở mục 'Giá trị nhập tay' nếu cần.")
+                    vals = {"_": first}
                 if len(vals) > 1:
                     plan.blockers.append(f"{sheet}!{ref} ({label}): các chứng từ ghi khác nhau: " +
                                          " / ".join(f"'{v}' ({data.docs[f['document_id']]['original_name']})" for v, f in vals.values()) +

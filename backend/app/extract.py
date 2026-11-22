@@ -976,7 +976,20 @@ def extract_operational(pages):
                         if len(vals) == len(cols) and vals[ci] and re.search(r"[A-Za-z0-9]", vals[ci]):
                             found["berth"] = {"value": vals[ci], "page_no": p["page_no"], "confidence": 0.85, "method": meth(p)}
                             break
-        # 3. Statement of Facts: '0800  2400  Vessel anchored ...' under a date line
+        # 3. remarks of the arrival notice: 'neo chờ cầu tại khu neo Vũng Tàu từ 11:30 ngày 12/09/2023',
+        #    'dự kiến cập Cầu 1 Cảng Quốc tế Long An (LAIP 01) lúc 23:00 ngày 15/09/2023'
+        text = " ".join(lines)
+        m = re.search(r"\bneo\s+(?:ch[oờ]\s+(?:c[aầ]u\s+)?)?t[aạ]i\s+(?:khu\s+neo\s+|v[uù]ng\s+neo\s+|khu\s+v[uự]c\s+neo\s+)?(.+?)"
+                      r"(?:\s+t[uừ]\s+\d|\s*[,.;(]|$)", text, re.I)
+        if m and "anchorage" not in found and len(m.group(1)) <= 40:
+            found["anchorage"] = {"value": "NEO " + m.group(1).strip().upper(), "page_no": p["page_no"], "confidence": 0.85, "method": meth(p)}
+        m = re.search(r"\bc[aậ]p\s+(C[aầ]u\s+(?:s[oố]\s+)?\w+[^()\n]{0,60}?(?:\([^)]*\))?)\s+l[uú]c\s+(\d{1,2})\s*[:hH]\s*(\d{2})\s+ng[aà]y\s+(\d{1,2}/\d{1,2}/\d{4})",
+                      text, re.I)
+        if m:
+            found.setdefault("berth_plan", {"value": m.group(1).strip(), "page_no": p["page_no"], "confidence": 0.85, "method": meth(p)})
+            found.setdefault("berthing_planned", {"value": f"{m.group(4)} {int(m.group(2)):02d}:{m.group(3)}", "page_no": p["page_no"],
+                                                  "confidence": 0.8, "method": meth(p)})
+        # 4. Statement of Facts: '0800  2400  Vessel anchored ...' under a date line
         day = None
         for l in lines:
             d = _line_date(l)
@@ -994,10 +1007,21 @@ def extract_operational(pages):
                 if t2 and not re.search(r"PILOT", desc):
                     t = t1
                 found["berthing_time"] = {"value": f"{day} {hm(t)}", "page_no": p["page_no"], "confidence": 0.8, "method": meth(p)}
+            am = re.search(r"ANCHORED\s+AT\s+([A-Z ]{3,30}?)\s+ANCHORAGE", desc)
+            if am and "anchorage" not in found:
+                found["anchorage"] = {"value": "NEO " + am.group(1).strip(), "page_no": p["page_no"], "confidence": 0.8, "method": meth(p)}
             if "tug" not in found and re.search(r"\bTUGS?\b", desc) and not re.search(r"NO\s+TUG|WITHOUT\s+TUG", desc):
                 tm = re.search(r"((?:\d+|ONE|TWO|THREE)\s+TUGS?[^.;]*|TUGS?\s*[:\-][^.;]*)", desc)
                 if tm:
                     found["tug"] = {"value": tm.group(1).strip().title(), "page_no": p["page_no"], "confidence": 0.75, "method": meth(p)}
+    # position of the ship on arrival: the anchorage when it anchors first (SGCL: 'NEO VŨNG TÀU'), else the berth
+    pos = found.pop("anchorage", None) or found.get("berth") or found.get("berth_plan")
+    found.pop("berth_plan", None)
+    if pos:
+        found["berth"] = pos
+    planned = found.pop("berthing_planned", None)
+    if planned and "berthing_time" not in found:
+        found["berthing_time"] = planned  # planned berthing in the arrival notice when no Statement of Facts gives the actual time
     return found
 
 
