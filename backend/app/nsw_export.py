@@ -326,6 +326,7 @@ def build_plan(conn, voyage_id):
     _passengers(plan, data)
     _goods(plan, data)
     _house_bls(plan, data)
+    _cargo_groups(plan, data)
     _dg(plan, data)
     _dg_transporter_note(plan)
     _empty_containers(plan, data)
@@ -545,6 +546,125 @@ def _rob_from_stores(data, key):
         if re.search(ROB_ARTICLES[key], art) and not (key == "rob_fo" and re.search(r"LUB|NHON", art)) and rec.get("quantity"):
             hits.append(rec["quantity"])
     return hits if len(hits) == 1 else []
+
+
+# ------------------------------------------------ cargo groups of GD / NOA (A46:G51 / A44:G46), codes of the 'Declaration list'
+CARGO_GROUP_ROWS = {"General Declaration": (46, 51), "Notice ship to port": (44, 46)}
+GOODS_CODES = [  # (keywords in the description, code, name in the NSW list) - first match wins
+    (r"PALM\s+KERNEL|\bPKE\b|CAM\s+CO|BA\s+HAT\s+CO", "DRY08", "CÁM CỌ"),
+    (r"COPRA|COCONUT\s+(MEAL|CAKE|EXPELLER)|CAM\s+DUA", "DRY09", "CÁM DỪA"),
+    (r"SOY\w*\s*(BEAN)?\s*MEAL|BA\s+DAU\s+NANH|KHO\s+DAU", "DRY01", "BÃ DẬU NÀNH"),
+    (r"SOYBEAN|DAU\s+TUONG|DAU\s+NANH", "DRY19", "ĐẬU TƯƠNG"),
+    (r"\bCORN\b|\bMAIZE\b|\bNGO\b", "DRY32", "NGÔ"),
+    (r"\bWHEAT\b|LUA\s+MI", "DRY28", "LÚA MÌ"),
+    (r"WHEAT\s+BRAN\s+PELLET|CAM\s+MI\s+VIEN", "DRY10", "CÁM MÌ VIÊN"),
+    (r"\bBRAN\b|\bCAM\b", "DRY11", "CÁM"),
+    (r"\bRICE\b|\bGAO\b", "DRY21", "GẠO"),
+    (r"PADDY|\bTHOC\b", "DRY58", "THÓC"),
+    (r"FLOUR|BOT\s+MI", "DRY05", "BỘT MÌ"),
+    (r"TAPIOCA\s+STARCH|CASSAVA\s+STARCH|BOT\s+SAN", "DRY06", "BỘT SẮN TINH"),
+    (r"TAPIOCA|CASSAVA|SAN\s+LAT", "DRY45", "SẮN LÁT"),
+    (r"ANIMAL\s+FEED|\bFEED\b|DDGS|THUC\s+AN\s+(GIA\s+SUC|CHAN\s+NUOI)", "DRY52", "THỨC ĂN GIA SÚC"),
+    (r"COFFEE|CA\s+PHE", "DRY07", "CÀ PHÊ"),
+    (r"\bSUGAR\b|\bDUONG\b", "DRY18", "ĐƯỜNG"),
+    (r"\bSALT\b|\bMUOI\b", "DRY30", "MUỐI"),
+    (r"FERTILI[SZ]ER|\bUREA\b|\bNPK\b|\bDAP\b|\bSA\b|AMMONIUM\s+SULPHATE|PHAN\s+BON", "DRY41", "PHÂN BÓN RỜI"),
+    (r"CLINKER", "DRY14", "CLINKER"),
+    (r"CEMENT.*BULK|BULK.*CEMENT|XI\s+MANG\s+ROI", "DRY75", "XI MĂNG RỜI"),
+    (r"CEMENT|XI\s+MANG", "DRY13", "XI MĂNG"),
+    (r"\bCOAL\b|\bTHAN\b", "DRY51", "THAN"),
+    (r"LIMESTONE|DA\s+VOI|CALCIUM\s+CARBONATE", "DRY16", "ĐÁ VÔI"),
+    (r"GYPSUM|THACH\s+CAO", "DRY50", "THẠCH CAO"),
+    (r"IRON\s+ORE\s+CONC|TINH\s+QUANG\s+SAT", "DRY59", "TINH QUẶNG SẮT"),
+    (r"IRON\s+ORE|QUANG\s+SAT", "DRY42", "QUẶNG SẮT"),
+    (r"SCRAP|SAT\s+VUN", "DRY48", "SẮT VỤN"),
+    (r"STEEL\s+COIL|HRC|CRC|SAT\s+CUON", "DRY47", "SẮT CUỘN"),
+    (r"STEEL\s+PLATE|THEP\s+TAM", "DRY56", "THÉP TẤM"),
+    (r"STEEL\s+PIPE|ONG\s+THEP", "DRY76", "ỐNG THÉP"),
+    (r"\bSTEEL\b|\bTHEP\b|\bIRON\b", "DRY46", "SẮT THÉP"),
+    (r"WOOD\s+CHIP|GO\s+BAM", "DRY25", "GỖ BĂM"),
+    (r"TIMBER|\bLOGS?\b|\bWOOD\b|\bGO\b", "DRY24", "GỖ"),
+    (r"RUBBER|CAO\s+SU", "DRY12", "CAO SU"),
+    (r"SULPHUR|SULFUR|LUU\s+HUYNH", "DRY29", "LƯU HUỲNH"),
+    (r"\bSODA\b", "DRY49", "SODA"),
+    (r"\bBARITE\b|\bMINERAL|KHOANG\s+SAN", "DRY27", "KHOÁNG SẢN"),
+    (r"PULP|BOT\s+GIAY", "DRY04", "BỘT GIẤY"),
+]
+LIQUID_CODES = [
+    (r"BASE\s+OIL|DAU\s+GOC", "LIQ01", "DẦU GỐC (BASE OIL)"), (r"PALM\s+OIL|VEGETABLE\s+OIL|\bCPO\b|RBD|DAU\s+THUC\s+VAT", "LIQ02", "DẦU THỰC VẬT"),
+    (r"\bLPG\b|KHI\s+HOA\s+LONG", "LIQ11", "LPG (KHÍ HÓA LỎNG)"), (r"CRUDE|DAU\s+THO", "LIQ15", "DẦU THÔ"),
+    (r"GASOLINE|PETROL|XANG", "LIQ09", "XĂNG "), (r"MOLASSES|RI\s+MAT", "LIQ08", "RỈ MẬT"), (r"BITUMEN|ASPHALT|NHUA\s+DUONG", "LIQ05", "NHỰA ĐƯỜNG LỎNG"),
+    (r"ACID|AXIT", "LIQ13", "A XÍT"), (r"CHEMICAL|HOA\s+CHAT", "LIQ04", "HÓA CHẤT LỎNG"),
+    (r"DIESEL|GASOIL|FUEL\s+OIL|\bOIL\b|\bDAU\b", "LIQ10", "DẦU"),
+]
+_LIQUID = r"\bLIQUID|\bTANKER|\b(?<!PALM KERNEL )OIL\b(?!\s*(CAKE|MEAL|SEED))|\bLPG\b|\bLNG\b|CRUDE|GASOLINE|DIESEL|MOLASSES|HANG\s+LONG|DAU\s+(THO|GOC|THUC\s+VAT|AN|DIESEL)|ACID|BITUMEN"
+
+
+def _tonnes(rec):
+    q, u = N.parse_number(_v(rec, "gross_weight"))
+    u = (u or _v(rec, "gross_weight_unit") or "").upper()
+    if q is None:
+        return None
+    return q / 1000 if u in ("KG", "KGS", "KGM") else q
+
+
+def _cargo_groups(plan, data):
+    """One row per kind of cargo: group (C2_DO = import discharged here, C5 = transit not handled here), cargo type
+    (9 container / 3 liquid / 12 dry bulk), goods code and name of the NSW list, quantity and unit."""
+    recs = data.records("cargo", ["CARGO_MANIFEST", "MANUAL"]) or data.records("cargo", ["BILL_OF_LADING"])
+    if not recs:
+        return
+    arrival = plan.cells.get(("General Declaration", "B7")) or plan.cells.get(("Notice ship to port", "B7"))
+    groups, order, srcs = {}, [], {}
+    for rec in recs:
+        desc = N.strip_accents(" ".join(_v(rec, k) or "" for k in ("description", "packages", "package_kind"))).upper()
+        pod_code = data.code("locode", _v(rec, "pod"))[0] if _v(rec, "pod") else None
+        here = not pod_code or not arrival or pod_code == arrival
+        grp = "C2_DO" if here else "C5"
+        if _v(rec, "container_no"):
+            typ, code, name = "9", "CON01", "CONTAINER CÓ HÀNG"
+        else:
+            liquid = re.search(_LIQUID, desc)
+            table = LIQUID_CODES if liquid else GOODS_CODES
+            hit = next(((cd, nm) for rx, cd, nm in table if re.search(rx, desc)), None)
+            code, name = hit if hit else (("LIQ16", "HÀNG LỎNG KHÁC") if liquid else ("DRY77", "HÀNG KHÔ KHÁC"))
+            typ = "3" if liquid else "12"
+        k = (grp, typ, code)
+        if k not in groups:
+            groups[k] = {"A": grp, "B": typ, "C": code, "D": name, "_t": 0.0, "_n": 0, "_teu": 0, "_pod": _v(rec, "pod"), "_bulk": "BULK" in desc or "HANG ROI" in desc}
+            order.append(k)
+            srcs[k] = []
+        g = groups[k]
+        t = _tonnes(rec)
+        if t is not None:
+            g["_t"] += t
+        g["_n"] += len([x for x in re.split(r"[,;\s]+", _v(rec, "container_no") or "") if x])
+        ct = _v(rec, "container_type") or ""
+        g["_teu"] += 2 if re.search(r"40|45", ct) else 1 if re.search(r"20", ct) else 0
+        srcs[k] += [rec.get(x) for x in ("description", "gross_weight", "pod", "container_no") if rec.get(x)]
+    for sheet, (r0, r1) in CARGO_GROUP_ROWS.items():
+        for i, k in enumerate(order):
+            r = r0 + i
+            if r > r1:
+                plan.warnings.append(f"{sheet}: có {len(order)} nhóm hàng nhưng mẫu chỉ có {r1 - r0 + 1} dòng (A{r0}:G{r1}) - các nhóm sau không được ghi.")
+                break
+            g = groups[k]
+            if g["B"] == "9":
+                qty, unit = (g["_teu"], "TEU") if g["_teu"] else (g["_n"], "UNC")
+            else:
+                qty, unit = (N.fmt_number(round(g["_t"], 3)) if g["_t"] else None), "TNE"
+            desc = "CONTAINER" if g["B"] == "9" else "IN BULK" if g["_bulk"] or g["B"] in ("3", "12") else ""
+            if g["A"] == "C5" and g["_pod"]:
+                desc = f"{desc}; HÀNG DỠ TẠI {g['_pod'].upper()}".strip("; ")
+            src = [_src(f, data) for f in srcs[k]]
+            for col, v, lab in (("A", g["A"], "Phân nhóm hàng"), ("B", g["B"], "Loại hàng"), ("C", g["C"], "Mã tên hàng"), ("D", g["D"], "Tên hàng"),
+                                ("E", qty, "Số lượng"), ("F", unit if qty else None, "Đơn vị"), ("G", desc, "Mô tả")):
+                if v not in (None, "") and not data.opts.get(f"cell:{sheet}!{col}{r}"):
+                    _set(plan, sheet, f"{col}{r}", str(v), f"Nhóm hàng {i + 1} - {lab}", src or [{"doc": "Tính từ dòng hàng", "status": "DERIVED"}], "derived")
+            for f in srcs[k]:
+                plan.used_fields.add(f["id"])
+        if any(groups[k]["C"] in ("DRY77", "LIQ16") for k in order):
+            plan.warnings.append(f"{sheet}: có nhóm hàng không xác định được mã tên hàng cụ thể - đã ghi 'Hàng khô/lỏng khác' - sửa trong file Excel nếu cần.")
 
 
 def _pkg_count(v):

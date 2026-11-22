@@ -639,3 +639,18 @@ def test_operational_facts_from_sof_clearance_and_plan():
     f = {k: v["value"] for k, v in extract.extract_operational(pg).items()}
     assert f["port_clearance_no"] == "SPB.IDPNK.0823.0000263" and f["berth"] == "NEO VUNG TAU"  # anchors first: position on arrival = anchorage
     assert f["pilot_on_board"] == "19/10/2023 11:30" and f["berthing_time"] == "19/10/2023 18:00" and f["tug"].startswith("2 Tugs")
+
+
+def test_cargo_group_goods_codes():
+    import re as _re
+    from app.nsw_export import GOODS_CODES, LIQUID_CODES, _LIQUID
+    from app import normalize as N
+
+    def code(d):
+        d = N.strip_accents(d).upper()
+        table = LIQUID_CODES if _re.search(_LIQUID, d) else GOODS_CODES
+        return next((cd for rx, cd, _ in table if _re.search(rx, d)), None)
+    assert code("Bã hạt cọ rời (Palm Kernel Expellers - PKE in bulk)") == "DRY08"
+    assert code("YELLOW CORN IN BULK (Animal Feed Raw Material)") == "DRY32"
+    assert code("GRANULAR UREA IN BULK") == "DRY41"
+    assert code("Đậu tương hạt") == "DRY19" and code("CRUDE PALM OIL IN BULK") == "LIQ02"
