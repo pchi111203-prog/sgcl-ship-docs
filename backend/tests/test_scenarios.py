@@ -103,7 +103,7 @@ def test_scenario1_consistent_set_exports():
         warnings.simplefilter("ignore")
         wb = openpyxl.load_workbook(p)
     ws = wb["Crew list"]
-    assert ws["C11"].value == "CAP" and ws["D11"].value in ("PH", "VN", "MM", "IN")
+    assert ws["C11"].value == "MASTER" and ws["D11"].value in ("PH", "VN", "MM", "IN")  # rank written as in the crew list (no code mapping)
     assert ws["A32"].value and ws["A33"].value is None  # 22 rows: 11..32
     assert wb["General Declaration"]["B24"].value == "20/11/2026 14:00"
     assert wb["General Declaration"]["B6"].value == "SGSIN"  # port name looked up in the UN/LOCODE list
@@ -114,7 +114,7 @@ def test_scenario1_consistent_set_exports():
     assert wb["Goods Declaration"]["P10"].value == "VNCLI" and wb["Goods Declaration"]["R10"].value == "SGSIN"
     assert wb["Passenger list"]["A11"].value is None  # sample row cleared, no passengers
     eff = wb["Crew's Effects Declaration"]
-    assert eff["A11"].value and eff["B11"].value and eff["C11"].value == "CAP"
+    assert eff["A11"].value and eff["B11"].value and eff["C11"].value == "MASTER"
     assert eff["A11"].value == "-"  # SGCL convention from the filled NSW file: Họ = "-", Tên = full name
     assert wb["General Declaration"]["B33"].value == "19/11/2026" and wb["General Declaration"]["B34"].value == "Đại lý/ShipAgency"
     assert wb["General Declaration"]["B16"].value == "1" and wb["General Declaration"]["B17"].value == "0"  # attached declarations 1/0

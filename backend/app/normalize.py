@@ -101,7 +101,7 @@ def parse_number(s):
     if s is None:
         return None, None
     txt = str(s).strip()
-    m = re.search(r"(-?\d[\d\s,\.]*)\s*([A-Za-z³]+)?", txt)
+    m = re.search(r"(-?\d[\d\s,\.]*)\s*([^\W\d_][^\W_]*³?|m³)?", txt)  # unit as a whole word ("Cây", not "C")
     if not m:
         return None, None
     num = m.group(1).strip().replace(" ", "")

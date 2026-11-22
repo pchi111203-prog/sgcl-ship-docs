@@ -344,7 +344,13 @@ def _v(rec, k):
     return (rec.get(k) or {}).get("value")
 
 
+AS_WRITTEN = {("rank", None), ("unit", "Ship's store declaration")}  # SGCL: written exactly as in the documents, no code mapping
+
+
 def _coded(plan, data, sheet, kind, raw, label):
+    if (kind, None) in AS_WRITTEN or (kind, sheet) in AS_WRITTEN:
+        ov = data.opts.get(f"code:{kind}:{N.norm_text(raw)}") if raw else None
+        return ov or raw
     code, ok = data.code(kind, raw)
     if raw and not ok:
         plan.warnings.append(f"{sheet}: '{raw}' chưa ánh xạ được sang mã NSW ({label}) - đã ghi nguyên văn, cần chọn mã ở mục Ánh xạ mã.")
@@ -378,6 +384,9 @@ def _stores(plan, data):
     sheet = "Ship's store declaration"
     for rec in data.records("store"):
         q, u = N.parse_number(_v(rec, "quantity"))
+        if u and not _v(rec, "unit"):  # the unit exactly as written after the number ("Chai", "Cây", "Lít")
+            m = re.search(r"\d\s*([^\W\d_][^\W_]*³?)", _v(rec, "quantity") or "")
+            u = m.group(1) if m else u
         unit_raw = _v(rec, "unit") or u
         _row(plan, sheet, {"A": _v(rec, "article"), "B": N.fmt_number(q) if q is not None else _v(rec, "quantity"),
                            "C": _coded(plan, data, sheet, "unit", unit_raw, "đơn vị tính"), "D": _v(rec, "location")},
