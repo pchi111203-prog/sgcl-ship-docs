@@ -447,34 +447,74 @@ def _unit_of(rec, key):
     return u or _v(rec, key + "_unit")
 
 
+_NOTIFY_IN_TEXT = re.compile(r"(?:B[eê]n\s+(?:đ[uư][oợ]c\s+)?th[oô]ng\s+b[aá]o|Notify(?:\s+party)?)\s*[:\-]\s*(.+)$", re.I | re.S)
+
+
+def _bulk(rec):
+    t = N.strip_accents(" ".join(_v(rec, k) or "" for k in ("description", "packages", "package_kind"))).upper()
+    return bool(re.search(r"\bBULK\b|HANG\s+ROI|\bROI\b", t)) and not _v(rec, "container_no")
+
+
+def _notify(rec, others):
+    """Notify party: written as such in the manifest or the B/L of the same B/L number, or inside the consignee
+    text ('... Bên thông báo: Công ty ...' / '... Notify: ...')."""
+    for r in [rec] + others:
+        if _v(r, "notify"):
+            return _v(r, "notify"), r.get("notify")
+    for r in [rec] + others:
+        f = r.get("consignee")
+        for txt in ((f or {}).get("original_value"), (f or {}).get("value")):
+            m = _NOTIFY_IN_TEXT.search(txt or "")
+            if m and len(m.group(1).strip()) > 3:
+                return m.group(1).strip(), f
+    return None, None
+
+
 def _goods(plan, data):
     sheet = "Goods Declaration"
     recs = data.records("cargo", ["CARGO_MANIFEST", "MANUAL"])
+    bls = {}
+    for r in data.records("cargo", ["BILL_OF_LADING"]):
+        bls.setdefault(N.norm_id(_v(r, "bl_no")), []).append(r)
     if not recs:
         recs = data.records("cargo", ["BILL_OF_LADING"])
         if recs:
             plan.warnings.append("Goods Declaration: không có Cargo Manifest - dữ liệu lấy từ các B/L.")
     missing_ct = []
     for rec in recs:
+        others = [r for r in bls.get(N.norm_id(_v(rec, "bl_no")), []) if r is not rec]
+        for r in others:  # what the manifest line does not state is taken from the B/L of the same number
+            for k, f in r.items():
+                rec.setdefault(k, f)
         cont = _v(rec, "container_no")
         if cont and "," in cont:
             plan.warnings.append(f"Goods Declaration: B/L {_v(rec, 'bl_no')} có nhiều container trên 1 dòng ({cont}) - NSW yêu cầu 1 container/dòng, cần kiểm tra.")
-        kind = _coded(plan, data, sheet, "package", _v(rec, "package_kind"), "loại kiện") if _v(rec, "package_kind") else None
+        bulk = _bulk(rec)
+        kind_raw = _v(rec, "package_kind") or ("BULK" if bulk else None)
+        kind = _coded(plan, data, sheet, "package", kind_raw, "loại kiện") if kind_raw else None
         gwu = _unit_of(rec, "gross_weight")
         mu = _unit_of(rec, "measurement")
+        notify, notify_f = _notify(rec, others)
+        if not notify and _v(rec, "consignee"):
+            notify, notify_f = _v(rec, "consignee"), rec.get("consignee")  # no notify party anywhere: the consignee (SGCL practice)
+        gross = _num(_v(rec, "gross_weight")) if _v(rec, "gross_weight") else None
+        pod = _coded(plan, data, sheet, "locode", _v(rec, "pod"), "cảng dỡ hàng")
         _row(plan, sheet, {
-            "A": _v(rec, "bl_no"), "B": _v(rec, "shipper"), "C": _v(rec, "consignee"), "D": _v(rec, "notify"),
+            "A": _v(rec, "bl_no"), "B": _v(rec, "shipper"),
+            "C": _NOTIFY_IN_TEXT.sub("", _v(rec, "consignee") or "").strip(" .;,") or _v(rec, "consignee"),  # notify party written inside: own column
+            "D": notify,
             "F": cont, "G": _v(rec, "seal_no"), "H": _v(rec, "hs_code"), "I": _v(rec, "description"),
-            "J": _num(_v(rec, "net_weight")) if _v(rec, "net_weight") else None, "K": _num(_v(rec, "gross_weight")) if _v(rec, "gross_weight") else None,
-            "L": _num(_v(rec, "measurement")) if _v(rec, "measurement") else None,
+            "J": _num(_v(rec, "net_weight")) if _v(rec, "net_weight") else gross,  # no net weight written: net = gross
+            "K": gross,
+            "L": _num(_v(rec, "measurement")) if _v(rec, "measurement") else "0",  # no measurement written: 0
             "O": _coded(plan, data, sheet, "unit", gwu, "đơn vị trọng lượng") if gwu else None,
-            "P": _coded(plan, data, sheet, "locode", _v(rec, "pod"), "cảng dỡ hàng"),
+            "P": pod, "U": pod,  # final destination = port of discharge
             "R": _coded(plan, data, sheet, "locode", _v(rec, "pol"), "cảng xếp hàng"),
             "V": _ctype(plan, rec, missing_ct),
-            "W": _coded(plan, data, sheet, "unit", mu, "đơn vị thể tích") if mu else None,
-        }, [rec.get(k) for k in ("bl_no", "shipper", "consignee", "notify", "container_no", "container_type", "seal_no", "hs_code", "description",
-                                 "net_weight", "gross_weight", "measurement", "pod", "pol", "gross_weight_unit", "measurement_unit")], data,
-            extra={"_packages": _v(rec, "packages"), "_kind_code": kind})
+            "W": (_coded(plan, data, sheet, "unit", mu, "đơn vị thể tích") if mu else None) or "MTQ",  # m3
+        }, [rec.get(k) for k in ("bl_no", "shipper", "consignee", "container_no", "container_type", "seal_no", "hs_code", "description",
+                                 "net_weight", "gross_weight", "measurement", "pod", "pol", "gross_weight_unit", "measurement_unit")] + [notify_f], data,
+            extra={"_packages": _pkg_count(_v(rec, "packages")) or ("0" if bulk else None), "_kind_code": kind})
     if missing_ct:
         plan.warnings.append(f"Goods Declaration cột V 'Loại cont' (bắt buộc): {len(missing_ct)} dòng chưa có loại container "
                              f"(B/L {', '.join(missing_ct[:8])}{'…' if len(missing_ct) > 8 else ''}) → chọn tại Kiểm tra và xác nhận › tab Hàng hóa.")
@@ -509,7 +549,8 @@ def _house_bls(plan, data):
         pod = _coded(plan, data, HOUSE_SHEET, "locode", _v(rec, "pod"), "cảng dỡ hàng")
         _row(plan, HOUSE_SHEET, {
             "A": i, "C": o.get("doc_year"), "D": o.get("doc_function"),
-            "E": _v(rec, "shipper"), "F": _v(rec, "consignee"), "G": _v(rec, "notify"),
+            "E": _v(rec, "shipper"), "F": _NOTIFY_IN_TEXT.sub("", _v(rec, "consignee") or "").strip(" .;,") or _v(rec, "consignee"),
+            "G": _notify(rec, [])[0] or _v(rec, "consignee"),
             "J": pod, "K": _coded(plan, data, HOUSE_SHEET, "locode", _v(rec, "pol"), "cảng xếp hàng"), "L": pod,
             "M": _v(rec, "place_of_delivery") or _v(rec, "pod"),
             "O": _v(rec, "bl_no"), "P": _v(rec, "date_of_bl"), "Q": _v(rec, "bl_no"), "R": _v(rec, "date_of_bl"), "S": _v(rec, "date_of_bl"),
