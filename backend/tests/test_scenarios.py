@@ -637,5 +637,5 @@ def test_operational_facts_from_sof_clearance_and_plan():
         "      1130   1800   Pilot on board; vessel proceeded to port & all fast at Berth No. 02",
         "      1200   —   2 tugs assisted berthing"])}]
     f = {k: v["value"] for k, v in extract.extract_operational(pg).items()}
-    assert f["port_clearance_no"] == "SPB.IDPNK.0823.0000263" and f["berth"] == "LAIP 02 (Cầu số 2)"
+    assert f["port_clearance_no"] == "SPB.IDPNK.0823.0000263" and f["berth"] == "NEO VUNG TAU"  # anchors first: position on arrival = anchorage
     assert f["pilot_on_board"] == "19/10/2023 11:30" and f["berthing_time"] == "19/10/2023 18:00" and f["tug"].startswith("2 Tugs")
