@@ -4,6 +4,7 @@ Code lists are read from the 'Declaration list' sheet of the NSW template at sta
 so they always match the template in use.  Synonym tables below only translate common
 document wordings to those codes; a suggestion is never exported unless staff confirm it.
 """
+import os
 import re
 import unicodedata
 from datetime import datetime
@@ -431,3 +432,73 @@ def nil_if_nothing(v):
         return v
     s = strip_accents(str(v)).strip()
     return "NIL" if s == "" or _NOTHING.match(s) and not re.search(r"\d", s) else v
+
+
+# ------------------------------------------------------------------ UN/LOCODE seaports (UNECE list, bundled)
+_PORTS = None
+_COUNTRY = None
+_PORT_STOP = {"PORT", "HARBOUR", "HARBOR", "TERMINAL", "OF", "THE", "SEAPORT", "PT", "CITY"}
+
+
+def _load_ports():
+    global _PORTS, _COUNTRY
+    if _PORTS is not None:
+        return
+    base = os.path.join(os.path.dirname(__file__), "data")
+    _PORTS, _COUNTRY = {}, {}
+    try:
+        with open(os.path.join(base, "unlocode_ports.tsv"), encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith("#") or "\t" not in line:
+                    continue
+                code, name = line.rstrip("\n").split("\t", 1)
+                core = tuple(w for w in norm_text(name.split(",")[0].split("(")[0]).split() if w not in _PORT_STOP)
+                if core:
+                    _PORTS.setdefault(code[:2], []).append((code, name, core))
+        with open(os.path.join(base, "countries.tsv"), encoding="utf-8") as fh:
+            for line in fh:
+                cc, name = line.rstrip("\n").split("\t", 1)
+                for alias in {re.sub(r"\(.*?\)", "", name), name.split(",")[0]}:
+                    k = norm_text(alias)
+                    if k:
+                        _COUNTRY[k] = cc
+    except OSError:
+        pass
+    _COUNTRY.update({"VIETNAM": "VN", "VIET NAM": "VN", "KOREA": "KR", "SOUTH KOREA": "KR", "TAIWAN": "TW", "RUSSIA": "RU",
+                     "USA": "US", "UNITED STATES": "US", "UK": "GB", "BRUNEI": "BN", "LAOS": "LA"})
+
+
+def suggest_locode(v):
+    """UN/LOCODE (5 characters: country + port) of a port written in words, from the UNECE seaport list.
+    Returns a code only when exactly one port matches (all words of its name present, country agreeing)."""
+    if not v:
+        return None
+    _load_ports()
+    if not _PORTS:
+        return None
+    t = " " + norm_text(v) + " "
+    t = t.replace(" CANG ", " PORT ").replace(" QUOC TE ", " INTERNATIONAL ")
+    words = set(t.split())
+    joined = t
+    countries = {cc for name, cc in _COUNTRY.items() if (" " + name + " ") in joined}
+    if not countries and re.search(r"[À-ỹĐđ]", v or ""):
+        countries = {"VN"}  # written in Vietnamese
+    pool = [p for cc in (countries or _PORTS.keys()) for p in _PORTS.get(cc, [])]
+    flat = t.replace(" ", "")
+    hits = []
+    for code, _, core in pool:
+        if sum(len(w) for w in core) < 4:
+            continue
+        if set(core) <= words:
+            pos = min(t.find(" " + w + " ") for w in core)
+        elif "".join(core) in flat and len("".join(core)) >= 6:  # "HAI PHONG" = "Haiphong"
+            pos = len(t[:t.replace(" ", "\0").find("\0".join(core)) if False else 0]) if False else flat.find("".join(core))
+        else:
+            continue
+        hits.append((pos, -len(core), code))
+    if not hits:
+        return None
+    # the port named first wins ("CAT LAI, HO CHI MINH" = Cat Lai), then the most specific name
+    best = min(h[:2] for h in hits)
+    codes = {h[2] for h in hits if h[:2] == best}
+    return codes.pop() if len(codes) == 1 else None

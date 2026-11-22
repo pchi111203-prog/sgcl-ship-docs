@@ -161,6 +161,7 @@ class Data:
         self.fields = [f for f in db.rows(conn, "SELECT * FROM extracted_fields WHERE voyage_id=? AND status!='EXCLUDED' ORDER BY record_index, id",
                                           (voyage_id,)) if f["document_id"] not in self.suspect and f["document_id"] not in self.superseded]
         self.opts = _opts(conn, voyage_id)
+        self.auto_codes = {}
 
     def dtype(self, f):
         d = self.docs.get(f["document_id"])
@@ -200,6 +201,11 @@ class Data:
             return raw, False
         if kind == "locode":
             c = _locode(raw) or (raw.strip().upper() if re.fullmatch(r"[A-Za-z]{2}[A-Za-z2-9]{3}", raw.strip()) else None)
+            if not c:
+                # port written in words: look it up in the UN/LOCODE seaport list (only an unambiguous match)
+                c = N.suggest_locode(raw)
+                if c:
+                    self.auto_codes[(kind, raw)] = c
             return (c, True) if c else (raw, False)
         return raw, True
 
@@ -302,6 +308,7 @@ def build_plan(conn, voyage_id):
         if cell and o.get("doc_function"):
             _set(plan, sheet, cell, o["doc_function"], "Chức năng của chứng từ", [{"doc": "Tùy chọn xuất file", "status": "CONFIRMED"}], "option")
     plan.warnings.append("Sheet 'List of House bill of lading': chưa điền tự động (cần quy ước House/Master B/L) → nhập trong Excel nếu có hàng gom.")
+    plan.auto_codes = dict(data.auto_codes)
     return plan, data
 
 
@@ -497,7 +504,8 @@ def plan_view(plan):
     tables = {s: {"rows": [{k: v for k, v in row.items() if not k.startswith("_")} for row in rows], "sources": plan.table_prov.get(s, [])}
               for s, rows in plan.tables.items()}
     unmapped = sorted({f"{k}|{v}" for k, v in getattr(plan, "unmapped_codes", set())})
-    return {"cells": cells, "tables": tables, "unmapped_codes": unmapped}
+    auto = sorted(f"{k}|{v}|{code}" for (k, v), code in getattr(plan, "auto_codes", {}).items())
+    return {"cells": cells, "tables": tables, "unmapped_codes": unmapped, "auto_codes": auto}
 
 
 # ======================================================================== write + verify

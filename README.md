@@ -98,3 +98,8 @@ Biến môi trường: `SGCL_DATA_DIR` (thư mục dữ liệu), `SGCL_TEMPLATE`
 - Ngày dạng số được hiểu theo thứ tự **ngày/tháng/năm**.
 - Đăng nhập là cơ chế nội bộ đơn giản (prototype) – khi triển khai thật cần HTTPS và tích hợp tài khoản công ty.
 - Các điểm ánh xạ chưa xác định được xem `docs/NSW_TEMPLATE_ANALYSIS.md` mục 4.
+
+### Mã cảng UN/LOCODE
+Tên cảng trong chứng từ được tự tra mã 5 ký tự theo danh mục cảng biển UN/LOCODE của UNECE
+(`backend/app/data/unlocode_ports.tsv`, lấy từ github.com/datasets/un-locode). Chỉ tự điền khi khớp duy nhất
+một cảng; nhân viên có thể sửa ở trang Xuất Excel NSW > "Mã cảng tự điền".

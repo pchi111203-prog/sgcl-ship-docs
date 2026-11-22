@@ -40,6 +40,7 @@ export default function Export({ user }) {
   if (!rd || !opt) return <><VoyageHeader voyage={voyage} current="export" /><div className="empty"><Spinner /></div></>
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
   const unmapped = rd.plan.unmapped_codes.map((x) => { const [kind, raw] = x.split('|'); return { kind, raw } })
+  const auto = (rd.plan.auto_codes || []).map((x) => { const [kind, raw, code] = x.split('|'); return { kind, raw, code } })
 
   return (
     <>
@@ -83,6 +84,19 @@ export default function Export({ user }) {
           <button className="btn primary" onClick={() => saveOpts()}>Lưu tùy chọn</button>
         </div>
       </div>
+
+      {auto.length > 0 && <div className="card">
+        <h2>Mã cảng tự điền ({auto.length})</h2>
+        <p className="small muted">Tên cảng trong chứng từ đã được tra theo danh mục cảng biển <b>UN/LOCODE</b> của Liên Hợp Quốc (UNECE) và điền mã 5 ký tự
+          (2 ký tự quốc gia + 3 ký tự cảng). Chỉ tự điền khi khớp duy nhất một cảng. Nếu mã chưa đúng, sửa trực tiếp ở ô bên phải (áp dụng cho chuyến này).</p>
+        <table className="t"><thead><tr><th>Giá trị trong chứng từ</th><th style={{ width: 220 }}>Mã UN/LOCODE</th></tr></thead><tbody>
+          {auto.map(({ kind, raw, code }) => {
+            const key = `code:${kind}:${normText(raw)}`
+            return <tr key={key}><td className="mono">{raw}</td><td>
+              <input defaultValue={form[key] || code} onBlur={(e) => e.target.value.toUpperCase() !== (form[key] || code) && saveOpts({ [key]: e.target.value.toUpperCase() })} style={{ maxWidth: 160 }} />
+            </td></tr>
+          })}</tbody></table>
+      </div>}
 
       {unmapped.length > 0 && <div className="card">
         <h2>Ánh xạ mã NSW ({unmapped.length} giá trị chưa có mã)</h2>

@@ -106,7 +106,7 @@ def test_scenario1_consistent_set_exports():
     assert ws["C11"].value == "CAP" and ws["D11"].value in ("PH", "VN", "MM", "IN")
     assert ws["A32"].value and ws["A33"].value is None  # 22 rows: 11..32
     assert wb["General Declaration"]["B24"].value == "20/11/2026 14:00"
-    assert wb["General Declaration"]["B6"].value == "SINGAPORE"
+    assert wb["General Declaration"]["B6"].value == "SGSIN"  # port name looked up in the UN/LOCODE list
     assert wb["Goods Declaration"]["A10"].value.startswith("SGCL1")
     assert wb["Goods Declaration"]["O10"].value == "KGM"
     assert wb["Goods Declaration"]["V10"].value == "Container 40" and wb["Goods Declaration"]["V11"].value == "Container 20"
@@ -606,3 +606,11 @@ def test_effects_nothing_to_declare_is_nil():
     assert extract.normalise_field("effects", "Không có hành lý vượt định mức") == "NIL"
     assert extract.normalise_field("effects", "Nothing to declare") == "NIL"
     assert extract.normalise_field("effects", "01 cây thuốc lá (200 điếu)") == "01 cây thuốc lá (200 điếu)"
+
+
+def test_port_names_to_unlocode():
+    from app.normalize import suggest_locode as s
+    assert s("PONTIANAK, INDONESIA") == "IDPNK" and s("Pontianak-Indonesia") == "IDPNK"
+    assert s("CẢNG QUỐC TẾ LONG AN (LONG AN INTERNATIONAL PORT - LAIP 01)") == "VNLAP" and s("Cảng Quốc tế Long An") == "VNLAP"
+    assert s("SURABAYA, INDONESIA") == "IDSUB" and s("HAI PHONG") == "VNHPH" and s("CAT LAI, HO CHI MINH") == "VNCLI"
+    assert s("HO CHI MINH") is None  # several ports: staff choose
