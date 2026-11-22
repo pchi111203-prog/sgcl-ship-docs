@@ -145,7 +145,14 @@ H = {
     "draft_fwd": ("Mớn nước mũi (F)", [r"draft\s*(fwd|fore|forward|\(f\))", r"draught\s*(fwd|fore|forward)", r"fwd\s+draft"]),
     "draft_aft": ("Mớn nước lái (A)", [r"draft\s*(aft|\(a\))", r"draught\s*aft", r"aft\s+draft"]),
     "air_draft": ("Chiều cao tĩnh không", [r"air\s+draft", r"air\s+draught", r"clearance\s+height"]),
-    "berth": ("Vị trí tàu tại cảng / Berth", [r"\bberth\b(?!ing)(?=\s*(no\.?)?\s*[:\-])", r"position\s+(of\s+the\s+ship\s+)?in\s+(the\s+)?port"]),
+    "berth": ("Vị trí tàu tại cảng / Berth", [r"\bberth\b(?!ing)(?=\s*(no\.?)?\s*[:\-])", r"position\s+(of\s+the\s+ship\s+)?in\s+(the\s+)?port",
+                                               r"v[iị]\s+tr[ií]\s+t[aà]u\s+t[aạ]i\s+c[aả]ng"]),  # berthing-plan tables: extract_operational
+    "port_clearance_no": ("Số giấy phép rời cảng", [r"port\s+clearance\s+(no\.?|number)", r"(m[aã]\s+)?s[oố]\s+gi[aấ]y\s+ph[eé]p\s+r[oờ]i\s+c[aả]ng"]),
+    "tug": ("Tàu lai", [r"\btug\s*(boat)?s?\b(?=\s*[:\-])", r"t[aà]u\s+lai(?=\s*[:\-])"]),
+    "waste_request": ("Yêu cầu tiếp nhận chất thải", [r"y[eê]u\s+c[aầ]u\s+(v[eề]\s+)?(ph[uư][oơ]ng\s+ti[eệ]n\s+)?ti[eế]p\s+nh[aậ]n.{0,20}ch[aấ]t\s+th[aả]i",
+                                                     r"waste\s+(and\s+residue\s+)?reception"]),
+    "pilot_on_board": ("Thời gian hoa tiêu lên tàu", [r"pilot\s+on\s+board(?=\s*[:\-@])", r"th[oờ]i\s+gian\s+hoa\s+ti[eê]u\s+l[eê]n\s+t[aà]u"]),
+    "berthing_time": ("Thời gian cập cảng", [r"th[oờ]i\s+gian\s+c[aậ]p\s+c[aả]ng", r"time\s+of\s+port\s+arrival", r"all\s+fast(?=\s*[:\-@])"]),
     "rob_do": ("ROB DO", [r"\bd\.?o\.?\b(?=\s*[:\-]?\s*\d)", r"diesel\s+oil", r"\bmgo\b", r"\bdo\s+rob\b", r"rob\s+do"]),
     "rob_fo": ("ROB FO", [r"\bf\.?o\.?\b(?=\s*[:\-]?\s*\d)", r"fuel\s+oil", r"\bhfo\b", r"\bifo\b", r"rob\s+fo", r"\bvlsfo\b"]),
     "rob_fw": ("ROB FW", [r"\bf\.?w\.?\b(?=\s*[:\-]?\s*\d)", r"fresh\s+water", r"rob\s+fw"]),
@@ -500,7 +507,7 @@ def _post_header(k, v):
     if k in ("gross_tonnage", "net_tonnage", "dwt"):
         m = re.search(r"\d[\d.,]*(\s*(GT|NT|MT|T|TONS?|MTS))?", v, re.I)
         return m.group(0) if m else None  # "(" or a label fragment is not a tonnage
-    if k in ("eta", "etd"):
+    if k in ("eta", "etd", "pilot_on_board", "berthing_time"):
         return v if N.parse_date(v)[1] else None  # an arrival time must contain a date ("Pilot Vũng Tàu)" is not one)
     if k in ("last_port", "port_of_arrival", "next_port", "port_of_loading", "port_of_discharge") and len(re.findall(r"[A-Za-zÀ-ỹĐđ]", v)) < 3:
         return None  # 'l', '/' ... OCR fragments are not ports
@@ -923,11 +930,84 @@ def normalise_field(key, value):
     return re.sub(r"\s+", " ", v)
 
 
+OPERATION_KEYS = ["berth", "port_clearance_no", "tug", "waste_request", "pilot_on_board", "berthing_time"]
+_MONTHS = {m: i for i, m in enumerate(["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], start=1)}
+
+
+def _line_date(line):
+    """Date at the start of a line of a Statement of Facts: 'Oct 19th 2023', '19/10/2023', '19 OCT 2023'."""
+    s = line.strip()
+    m = re.match(r"([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})", s)
+    if m and m.group(1).upper() in _MONTHS:
+        return f"{int(m.group(2)):02d}/{_MONTHS[m.group(1).upper()]:02d}/{m.group(3)}"
+    m = re.match(r"(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3})[a-z]*\.?,?\s+(\d{4})", s)
+    if m and m.group(2).upper() in _MONTHS:
+        return f"{int(m.group(1)):02d}/{_MONTHS[m.group(2).upper()]:02d}/{m.group(3)}"
+    m = re.match(r"(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})", s)
+    if m:
+        return f"{int(m.group(1)):02d}/{int(m.group(2)):02d}/{m.group(3)}"
+    return None
+
+
+def extract_operational(pages):
+    """Port-call facts written in operational documents (Statement of Facts, berthing plan, port clearance):
+    berth, last port clearance number, tugs, pilot on board / all fast times."""
+    found = {}
+    meth = lambda p: p["method"] + "-operational"
+    for p in pages:
+        lines = p["text"].splitlines()
+        up = [N.strip_accents(l).upper() for l in lines]
+        # 1. port clearance number: 'No. : SPB.IDPNK.0823.0000263' under the title PORT CLEARANCE / GIẤY PHÉP RỜI CẢNG
+        for i, l in enumerate(up):
+            if "port_clearance_no" not in found and re.search(r"PORT\s+CLEARANCE|GIAY\s+PHEP\s+ROI\s+CANG", l):
+                for nl in lines[i:i + 12]:
+                    m = re.search(r"\b(?:No|S[ốo])\.?\s*[:.]\s*([A-Z0-9][A-Z0-9./\-]{5,})", nl)
+                    if m and re.search(r"\d", m.group(1)):
+                        found["port_clearance_no"] = {"value": m.group(1).rstrip("."), "page_no": p["page_no"], "confidence": 0.85 if p["method"] != "ocr" else 0.7,
+                                                      "method": meth(p)}
+                        break
+        # 2. a table whose heading names the berthing position: value in the same column of the next row
+        for i, l in enumerate(lines[:-1]):
+            cols = [x.strip() for x in re.split(r"\s{3,}|\t|\|", l) if x.strip()]
+            for ci, col in enumerate(cols):
+                if "berth" not in found and re.search(r"BERTHING\s+POSITION|VI\s+TRI\s+CAP\b", N.strip_accents(col).upper()):
+                    for nl in lines[i + 1:i + 3]:
+                        vals = [x.strip() for x in re.split(r"\s{3,}|\t|\|", nl) if x.strip()]
+                        if len(vals) == len(cols) and vals[ci] and re.search(r"[A-Za-z0-9]", vals[ci]):
+                            found["berth"] = {"value": vals[ci], "page_no": p["page_no"], "confidence": 0.85, "method": meth(p)}
+                            break
+        # 3. Statement of Facts: '0800  2400  Vessel anchored ...' under a date line
+        day = None
+        for l in lines:
+            d = _line_date(l)
+            if d:
+                day = d
+            m = re.search(r"(?<!\d)(\d{4})(?:\s+[-–—]?\s*(\d{4}))?(?:\s+[-–—]+)?\s+([A-Za-z0-9].*)$", l)
+            if not (day and m) or int(m.group(1)[:2]) > 23 or int(m.group(1)[2:]) > 59:
+                continue
+            desc, t1, t2 = m.group(3).upper(), m.group(1), m.group(2)
+            hm = lambda t: f"{t[:2]}:{t[2:]}"
+            if "pilot_on_board" not in found and re.search(r"PILOT\s+(ON\s+BOARD|BOARDED|EMBARKED)|\bPOB\b", desc):
+                found["pilot_on_board"] = {"value": f"{day} {hm(t1)}", "page_no": p["page_no"], "confidence": 0.85, "method": meth(p)}
+            if "berthing_time" not in found and re.search(r"ALL\s+FAST|BERTHED|MADE\s+FAST|ALONGSIDE", desc):
+                t = t2 if (t2 and re.search(r"PILOT.*(ALL\s+FAST|BERTHED)", desc)) else t1
+                if t2 and not re.search(r"PILOT", desc):
+                    t = t1
+                found["berthing_time"] = {"value": f"{day} {hm(t)}", "page_no": p["page_no"], "confidence": 0.8, "method": meth(p)}
+            if "tug" not in found and re.search(r"\bTUGS?\b", desc) and not re.search(r"NO\s+TUG|WITHOUT\s+TUG", desc):
+                tm = re.search(r"((?:\d+|ONE|TWO|THREE)\s+TUGS?[^.;]*|TUGS?\s*[:\-][^.;]*)", desc)
+                if tm:
+                    found["tug"] = {"value": tm.group(1).strip().title(), "page_no": p["page_no"], "confidence": 0.75, "method": meth(p)}
+    return found
+
+
 def extract_document(doc_type, pages):
     """Return list of field dicts ready to be stored."""
     out = []
     hdr_keys = DOC_HEADER_FIELDS.get(doc_type, DOC_HEADER_FIELDS["OTHER"])
-    hdr = extract_header(pages, hdr_keys)
+    hdr = extract_header(pages, list(dict.fromkeys(hdr_keys + OPERATION_KEYS)))
+    for k, v in extract_operational(pages).items():
+        hdr.setdefault(k, v)
     for k, d in hdr.items():
         out.append(dict(section="vessel", record_key="header", record_index=0, field_key=k, **d))
 

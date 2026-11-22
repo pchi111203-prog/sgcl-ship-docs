@@ -625,3 +625,17 @@ def test_imprecise_port_takes_code_of_same_port_elsewhere():
         data = nsw_export.Data(c, v["id"])
         assert data.code("locode", "LONG AN PORT, VIETNAM") == ("VNLAP", True)
         assert data.code("locode", "SOME UNKNOWN PLACE") == ("SOME UNKNOWN PLACE", False)
+
+
+def test_operational_facts_from_sof_clearance_and_plan():
+    from app import extract
+    pg = [{"page_no": 1, "method": "text", "confidence": 1, "tables": [], "text": "\n".join([
+        "PORT CLEARANCE", "No. : SPB.IDPNK.0823.0000263",
+        "THỨ TỰ Sequence   TÊN TÀU Vessel   VỊ TRÍ CẬP Berthing Position   GIỜ DỰ KIẾN ETB",
+        "1   M/V X Voy: 1   LAIP 02 (Cầu số 2)   18:00 – 19/10/2023",
+        "Oct 19th 2023   Thu   0000   0900   Vessel anchored at Vung Tau anchorage",
+        "      1130   1800   Pilot on board; vessel proceeded to port & all fast at Berth No. 02",
+        "      1200   —   2 tugs assisted berthing"])}]
+    f = {k: v["value"] for k, v in extract.extract_operational(pg).items()}
+    assert f["port_clearance_no"] == "SPB.IDPNK.0823.0000263" and f["berth"] == "LAIP 02 (Cầu số 2)"
+    assert f["pilot_on_board"] == "19/10/2023 11:30" and f["berthing_time"] == "19/10/2023 18:00" and f["tug"].startswith("2 Tugs")

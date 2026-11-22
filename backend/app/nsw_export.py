@@ -17,6 +17,7 @@ from . import db
 from . import normalize as N
 from . import crosscheck
 from .crosscheck import _locode
+from .extract import OPERATION_KEYS
 from .xlsxpatch import Book, col2num, num2col, split_ref
 
 SIGNERS = ["Thuyền trưởng/Master", "Đại lý/ShipAgency", "Chủ tàu/ShipOwner"]
@@ -54,15 +55,15 @@ def _gd_rows(offset_after_19):
 
 SHEET_HEADERS = {
     "General Declaration": (_gd_rows([
-        ("B20", "Yêu cầu tiếp nhận chất thải", "manual"), ("B21", "Vị trí tàu tại cảng", "src:berth"), ("B22", "Tàu lai", "manual"),
-        ("B23", "Mã số giấy phép rời cảng", "manual"), ("B24", "Thời gian đến cảng", "src:eta:date"), ("B25", "Thời gian cập cảng", "manual"),
-        ("B26", "Thời gian hoa tiêu lên tàu", "manual"), ("B27", "Link tra cứu GP rời cảng", "manual"), ("B28", "Mã vạch GP rời cảng", "manual"),
+        ("B20", "Yêu cầu tiếp nhận chất thải", "src:waste_request"), ("B21", "Vị trí tàu tại cảng", "src:berth"), ("B22", "Tàu lai", "src:tug"),
+        ("B23", "Mã số giấy phép rời cảng", "src:port_clearance_no"), ("B24", "Thời gian đến cảng", "src:eta:date"), ("B25", "Thời gian cập cảng", "src:berthing_time:date"),
+        ("B26", "Thời gian hoa tiêu lên tàu", "src:pilot_on_board:date"), ("B27", "Link tra cứu GP rời cảng", "manual"), ("B28", "Mã vạch GP rời cảng", "manual"),
         ("B29", "Dầu DO", "src:rob_do:num"), ("B30", "Dầu FO", "src:rob_fo:num"), ("B31", "Nước ngọt FW", "src:rob_fw:num"),
         ("B32", "Nơi ký", "opt:sign_place"), ("B33", "Ngày ký", "opt:sign_date"), ("B34", "Người ký", "opt:signer")]), [GD, NOA]),
     "Notice ship to port": (_gd_rows([
-        ("B20", "Yêu cầu tiếp nhận chất thải", "manual"), ("B21", "Vị trí tàu tại cảng", "src:berth"), ("B22", "Tàu lai", "manual"),
-        ("B23", "Mã số giấy phép rời cảng", "manual"), ("B24", "Thời gian đến/rời cảng", "src:eta:date"), ("B25", "Thời gian cập cảng", "manual"),
-        ("B26", "Thời gian hoa tiêu lên tàu", "manual"), ("B27", "Dầu DO", "src:rob_do:num"), ("B28", "Dầu FO", "src:rob_fo:num"),
+        ("B20", "Yêu cầu tiếp nhận chất thải", "src:waste_request"), ("B21", "Vị trí tàu tại cảng", "src:berth"), ("B22", "Tàu lai", "src:tug"),
+        ("B23", "Mã số giấy phép rời cảng", "src:port_clearance_no"), ("B24", "Thời gian đến/rời cảng", "src:eta:date"),
+        ("B25", "Thời gian cập cảng", "src:berthing_time:date"), ("B26", "Thời gian hoa tiêu lên tàu", "src:pilot_on_board:date"), ("B27", "Dầu DO", "src:rob_do:num"), ("B28", "Dầu FO", "src:rob_fo:num"),
         ("B29", "Nước ngọt FW", "src:rob_fw:num"), ("B30", "Nơi ký", "opt:sign_place"), ("B31", "Ngày ký", "opt:sign_date"),
         ("B32", "Người ký", "opt:signer")]), [NOA, GD]),
     "ConfirmationOfArrival": ([("B3", "Số hồ sơ", "opt:doc_no"), ("B4", "Năm đăng ký", "opt:doc_year"), ("B5", "Chức năng", "opt:doc_function"),
@@ -278,8 +279,11 @@ def build_plan(conn, voyage_id):
                 key, tr = rest[0], (rest[1] if len(rest) > 1 else None)
                 fs = data.header(key, types)
                 if not fs:  # not in the main documents of this sheet: take it from any other declaration that states it
-                    others = [t for t in {data.dtype(f) for f in data.fields} if t not in types and t not in ("OTHER", "REFERENCE", "MANUAL")]
+                    skip = ("MANUAL",) if key in OPERATION_KEYS else ("OTHER", "REFERENCE", "MANUAL")  # port-call facts: SOF, berthing plan...
+                    others = [t for t in {data.dtype(f) for f in data.fields} if t not in types and t not in skip]
                     fs = data.header(key, sorted(others))
+                if not fs and key in ROB_ARTICLES:
+                    fs = _rob_from_stores(data, key)  # quantity on board from the Ship's Stores Declaration
                 if not fs:
                     plan.empty.append(f"{sheet}!{ref} - {label} (Not Available in Source)")
                     continue
@@ -517,6 +521,23 @@ def _house_bls(plan, data):
                 plan.used_fields.add(rec[x]["id"])
     if order and "N" not in (plan.tables[HOUSE_SHEET][0]):
         plan.empty.append(f"{HOUSE_SHEET}!N - Loại hàng (Cargo Type): chứng từ không ghi mã loại hàng NSW → nhập tay nếu cần")
+
+
+ROB_ARTICLES = {
+    "rob_do": r"\bD\.?O\b|DIESEL|\bMGO\b|GAS\s*OIL|DAU\s+DO\b",
+    "rob_fo": r"\bF\.?O\b|FUEL\s+OIL|\bIFO\b|\bHFO\b|VLSFO|DAU\s+(NHIEN\s+LIEU|FO)\b",
+    "rob_fw": r"FRESH\s+WATER|\bF\.?W\b|NUOC\s+NGOT",
+}
+
+
+def _rob_from_stores(data, key):
+    """ROB DO / FO / FW = quantity of the matching article of the Ship's Stores Declaration (only one matching line)."""
+    hits = []
+    for rec in data.records("store"):
+        art = N.strip_accents(_v(rec, "article") or "").upper()
+        if re.search(ROB_ARTICLES[key], art) and not (key == "rob_fo" and re.search(r"LUB|NHON", art)) and rec.get("quantity"):
+            hits.append(rec["quantity"])
+    return hits if len(hits) == 1 else []
 
 
 def _pkg_count(v):
