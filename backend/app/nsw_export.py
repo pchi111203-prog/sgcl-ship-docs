@@ -42,7 +42,7 @@ def _gd_rows(offset_after_19):
             ("B7", "Các cảng sẽ đến (mã cảng đến)", "src:port_of_arrival:locode"),
             ("B8", "Các cảng sẽ dỡ hàng (mã cảng đến)", "src:port_of_arrival:locode"), ("B9", "Số hàng còn lại", "manual"),
             ("B10", "Mớn nước F (m)", "src:draft_fwd:num"), ("B11", "Mớn nước A (m)", "src:draft_aft:num"),
-            ("B12", "Chiều cao tĩnh không (m)", "src:air_draft:num"), ("B13", "Ghi chú", "manual"),
+            ("B12", "Chiều cao tĩnh không (m)", "src:air_draft:num"), ("B13", "Ghi chú", "voyage:notes"),
             ("B14", "Bản khai hàng hóa kèm theo (1/0)", "docs:CARGO_MANIFEST|BILL_OF_LADING"),
             ("B15", "Bản khai dự trữ tàu kèm theo (1/0)", "docs:SHIP_STORES"),
             ("B16", "Danh sách thuyền viên kèm theo (1/0)", "docs:CREW_LIST"),
@@ -266,6 +266,12 @@ def build_plan(conn, voyage_id):
                 v = "1" if any(t in present for t in types_) else "0"
                 _set(plan, sheet, ref, v, label, [{"doc": "Có chứng từ tương ứng trong bộ hồ sơ" if v == "1" else "Không có chứng từ tương ứng",
                                                   "status": "DERIVED"}], "derived")
+            elif kind == "voyage":
+                v = (data.voyage.get(rest[0]) or "").strip()
+                if v:  # e.g. the notes typed when the voyage was created
+                    _set(plan, sheet, ref, v, label, [{"doc": "Hồ sơ chuyến tàu (ghi chú khi tạo chuyến)", "status": "CONFIRMED"}], "voyage")
+                else:
+                    plan.empty.append(f"{sheet}!{ref} - {label} (ghi chú của hồ sơ chuyến đang trống)")
             elif kind == "manual":
                 plan.empty.append(f"{sheet}!{ref} - {label} (không có trong chứng từ - nhập tay nếu cần)")
             elif kind == "src":

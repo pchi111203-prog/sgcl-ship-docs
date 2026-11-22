@@ -165,7 +165,7 @@ function ManualCells({ opt, form, save }) {
     {opt.manual_cells.map((m) => {
       const key = `cell:${m.sheet}!${m.cell}`
       return <tr key={key}><td>{m.sheet}</td><td className="mono">{m.cell}</td><td>{m.label}</td>
-        <td className="small muted">{m.spec.startsWith('src') ? 'Từ chứng từ' : m.spec.startsWith('derived') ? 'Tính từ dữ liệu' : 'Không có trong chứng từ'}</td>
+        <td className="small muted">{m.spec.startsWith('src') ? 'Từ chứng từ' : m.spec.startsWith('derived') || m.spec.startsWith('docs') ? 'Tính từ dữ liệu' : m.spec.startsWith('voyage') ? 'Ghi chú khi tạo chuyến' : m.spec.startsWith('opt') ? 'Tùy chọn xuất file' : 'Không có trong chứng từ'}</td>
         <td><input className="cell" defaultValue={form[key] || ''} onBlur={(e) => e.target.value !== (form[key] || '') && save({ [key]: e.target.value })} /></td></tr>
     })}</tbody></table>
     <p className="small muted" style={{ padding: '0 18px' }}>Chỉ nhập khi có căn cứ (chứng từ gốc, chỉ thị của cảng vụ…). Giá trị nhập tay được ghi vào lịch sử.</p></div>
