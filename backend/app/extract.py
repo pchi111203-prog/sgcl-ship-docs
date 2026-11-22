@@ -432,11 +432,18 @@ def extract_header(pages, keys, all_keys=None):
                 if not val and j == len(hits) - 1:
                     # value on following line(s) (box layout: label above value)
                     nxt = []
-                    for nl in range(i + 1, min(i + 5, len(lines))):
+                    for nl in range(i + 1, min(i + (8 if k in MULTILINE_PARTY else 5), len(lines))):
                         if not raw_lines[nl].strip():
+                            if nxt and k in MULTILINE_PARTY:
+                                break  # end of the party box
                             continue
                         if _label_hits(lines[nl], all_keys):
                             break
+                        if nxt and k in MULTILINE_PARTY:
+                            ln = raw_lines[nl].strip()
+                            if sum(ch.isalnum() or ch.isspace() for ch in ln) < len(ln) * 0.75 or \
+                                    (nxt[0].upper() == nxt[0] and len(re.findall(r"\b[a-z]{3,}\b", ln)) >= 2):
+                                break  # scanner noise / the next printed heading of the form, not the party
                         piece = _merge_comma_cols(re.split(r"\s{3,}", raw_lines[nl].strip()))
                         if k in MULTILINE_PARTY and not nxt:
                             first = piece[0]
@@ -448,11 +455,11 @@ def extract_header(pages, keys, all_keys=None):
                             nxt.append(first)
                         else:
                             nxt.append(piece[0] if not (nxt and k in MULTILINE_PARTY) else " ".join(piece))
-                        # a party name broken over lines ("... BANK FOR" / "FOREIGN TRADE OF VIETNAM, NGHE AN BRANCH")
-                        if k not in MULTILINE_PARTY or len(nxt) >= 3 or not re.search(r"(\b(FOR|OF|AND|THE|TO)|[,&\-])\s*$", nxt[-1], re.I):
+                        # a party box: name and full address / tax code, every line until the next heading of the form
+                        if k not in MULTILINE_PARTY or len(nxt) >= 6:
                             break
                     val = _clean_value(" ".join(nxt))
-                if not val or len(val) > 160 or val.rstrip().endswith(":"):
+                if not val or len(val) > (400 if k in MULTILINE_PARTY else 160) or val.rstrip().endswith(":"):
                     continue  # "Date time:" = the next label, not a value
                 val = _post_header(k, val)
                 if not val:
