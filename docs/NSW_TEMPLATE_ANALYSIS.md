@@ -85,3 +85,4 @@ Quy ước chung các sheet bản khai: **A = nhãn (Việt/Anh), B = giá trị
 - Chức danh thuyền viên và đơn vị ở Ship's store ghi đúng như chứng từ (không đổi mã).
 - Hành lý thuyền viên không có gì phải khai: NIL. Loại container không có trong chứng từ: Other.
 - List of House bill of lading: mỗi B/L một khối, số B/L ghi cả ô số vận đơn và số vận đơn gốc.
+- Goods Declaration: hàng rời → Tổng số kiện B6 = 0, Loại kiện B7 = NE (Declaration list cột O); Notify tìm trong mọi chứng từ của cùng B/L (kể cả "Bên thông báo:" trong ô Consignee), không có thì = Consignee; Net weight không ghi = Gross; Kích thước/thể tích không ghi = 0; Đơn vị thể tích = MTQ; Cảng giao hàng/cảng đích (U) = Cảng dỡ hàng (P).
