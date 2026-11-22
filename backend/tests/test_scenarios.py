@@ -616,3 +616,12 @@ def test_port_names_to_unlocode():
     assert s("CẢNG QUỐC TẾ LONG AN (LONG AN INTERNATIONAL PORT - LAIP 01)") == "VNLAP" and s("Cảng Quốc tế Long An") == "VNLAP"
     assert s("SURABAYA, INDONESIA") == "IDSUB" and s("HAI PHONG") == "VNHPH" and s("CAT LAI, HO CHI MINH") == "VNCLI"
     assert s("HO CHI MINH") is None  # several ports: staff choose
+
+
+def test_imprecise_port_takes_code_of_same_port_elsewhere():
+    from app import db, nsw_export
+    v = client.post("/api/voyages", json={"vessel_name": "PORT TEST", "voyage_no": "9", "port_of_arrival": "Cảng Quốc tế Long An"}, headers=H).json()
+    with db.tx() as c:
+        data = nsw_export.Data(c, v["id"])
+        assert data.code("locode", "LONG AN PORT, VIETNAM") == ("VNLAP", True)
+        assert data.code("locode", "SOME UNKNOWN PLACE") == ("SOME UNKNOWN PLACE", False)

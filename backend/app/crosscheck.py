@@ -58,8 +58,15 @@ def _is_vietnamese(s):
 
 
 def _locode(s):
+    """A UN/LOCODE written in the text ('SINGAPORE (SGSIN)') - only a code that exists, so a last word such as
+    'HANOI' or 'PLACE' is not taken for a code."""
     m = re.search(r"\b([A-Z]{2}[A-Z2-9]{3})\b(?=\)|$)", (s or "").upper())
-    return m.group(1) if m else None
+    if not m:
+        return None
+    code = m.group(1)
+    if N.is_locode(code) or ("(" + code + ")" in (s or "").upper().replace(" ", "") and N.is_country(code[:2])):
+        return code  # a known seaport code, or any code written in brackets after the port name
+    return None
 
 
 _PORT_GENERIC = {"PORT", "CANG", "INTERNATIONAL", "QUOC", "TE", "TERMINAL", "BEN", "CAU", "OF", "THE", "AND", "CITY", "THANH", "PHO", "TP",

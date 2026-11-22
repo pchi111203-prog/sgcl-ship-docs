@@ -124,6 +124,9 @@ TABLES = {
 }
 
 
+PORT_KEYS = {"pod", "pol", "port_of_arrival", "last_port", "next_port", "port_of_loading", "port_of_discharge", "place_of_delivery"}
+
+
 class Plan:
     def __init__(self):
         self.cells = {}          # (sheet, ref) -> value
@@ -161,6 +164,7 @@ class Data:
         self.fields = [f for f in db.rows(conn, "SELECT * FROM extracted_fields WHERE voyage_id=? AND status!='EXCLUDED' ORDER BY record_index, id",
                                           (voyage_id,)) if f["document_id"] not in self.suspect and f["document_id"] not in self.superseded]
         self.opts = _opts(conn, voyage_id)
+        self.voyage = db.row(conn, "SELECT * FROM voyages WHERE id=?", (voyage_id,)) or {}
         self.auto_codes = {}
 
     def dtype(self, f):
@@ -184,6 +188,21 @@ class Data:
                 order.setdefault(k, (f["document_id"] or 10 ** 9, f["record_index"]))
         return [recs[k] for k in sorted(recs, key=lambda k: order[k])]
 
+    def _same_port_code(self, raw):
+        """'LONG AN PORT, VIETNAM' is not precise enough for the UN/LOCODE list, but another document of this voyage
+        names the same port precisely ('Cảng Quốc tế Long An' = VNLAP): use that code when exactly one code results."""
+        from .crosscheck import _cmp_port
+        names = {f["value"] for f in self.fields if f["field_key"] in PORT_KEYS and f["value"]}
+        if self.voyage.get("port_of_arrival"):
+            names.add(self.voyage["port_of_arrival"])
+        codes = set()
+        for other in names:
+            if other != raw and _cmp_port(raw, other):
+                oc = _locode(other) or N.suggest_locode(other)
+                if oc:
+                    codes.add(oc)
+        return codes.pop() if len(codes) == 1 else None
+
     def code(self, kind, raw):
         if not raw:
             return None, True
@@ -203,7 +222,7 @@ class Data:
             c = _locode(raw) or (raw.strip().upper() if re.fullmatch(r"[A-Za-z]{2}[A-Za-z2-9]{3}", raw.strip()) else None)
             if not c:
                 # port written in words: look it up in the UN/LOCODE seaport list (only an unambiguous match)
-                c = N.suggest_locode(raw)
+                c = N.suggest_locode(raw) or self._same_port_code(raw)
                 if c:
                     self.auto_codes[(kind, raw)] = c
             return (c, True) if c else (raw, False)

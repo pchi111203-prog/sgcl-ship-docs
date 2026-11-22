@@ -502,3 +502,21 @@ def suggest_locode(v):
     best = min(h[:2] for h in hits)
     codes = {h[2] for h in hits if h[:2] == best}
     return codes.pop() if len(codes) == 1 else None
+
+
+def is_locode(code):
+    """True when the 5-character code is in the UN/LOCODE list (any function); unknown when the list is missing."""
+    _load_ports()
+    if not _PORTS:
+        return True
+    global _ALL_CODES
+    try:
+        _ALL_CODES
+    except NameError:
+        _ALL_CODES = {p[0] for lst in _PORTS.values() for p in lst}
+    return code in _ALL_CODES
+
+
+def is_country(cc):
+    _load_ports()
+    return not _COUNTRY or cc in set(_COUNTRY.values())
