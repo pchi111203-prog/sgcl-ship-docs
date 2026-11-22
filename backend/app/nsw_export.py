@@ -21,7 +21,7 @@ from .xlsxpatch import Book, col2num, num2col, split_ref
 
 SIGNERS = ["Thuyền trưởng/Master", "Đại lý/ShipAgency", "Chủ tàu/ShipOwner"]
 NAME_SPLITS = {
-    "dash_family": "Họ = '-', Tên = họ tên đầy đủ (cách SGCL đang khai trong file NSW thực tế)",
+    "dash_family": "Họ = '-', Tên = họ tên đầy đủ",
     "full_in_both": "Ghi họ tên đầy đủ vào cả cột Họ và cột Tên",
     "last_word_given": "Họ = các từ đầu, Tên = từ cuối cùng (VD: NGUYEN VAN | AN)",
     "first_word_family": "Họ = từ đầu tiên, Tên = các từ còn lại (VD: NGUYEN | VAN AN)",
