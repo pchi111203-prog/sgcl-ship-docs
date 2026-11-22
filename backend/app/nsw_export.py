@@ -564,7 +564,8 @@ GOODS_CODES = [  # (keywords in the description, code, name in the NSW list) - f
     (r"FLOUR|BOT\s+MI", "DRY05", "BỘT MÌ"),
     (r"TAPIOCA\s+STARCH|CASSAVA\s+STARCH|BOT\s+SAN", "DRY06", "BỘT SẮN TINH"),
     (r"TAPIOCA|CASSAVA|SAN\s+LAT", "DRY45", "SẮN LÁT"),
-    (r"ANIMAL\s+FEED|\bFEED\b|DDGS|THUC\s+AN\s+(GIA\s+SUC|CHAN\s+NUOI)", "DRY52", "THỨC ĂN GIA SÚC"),
+    (r"ANIMAL\s+FEED|\bFEED\b|DDGS|DISTILLERS|RAPESEED\s+MEAL|CANOLA\s+MEAL|SUNFLOWER\s+MEAL|FISH\s*MEAL|MEAT\s+(AND\s+)?BONE|"
+     r"THUC\s+AN\s+(GIA\s+SUC|CHAN\s+NUOI)", "DRY52", "THỨC ĂN GIA SÚC"),
     (r"COFFEE|CA\s+PHE", "DRY07", "CÀ PHÊ"),
     (r"\bSUGAR\b|\bDUONG\b", "DRY18", "ĐƯỜNG"),
     (r"\bSALT\b|\bMUOI\b", "DRY30", "MUỐI"),
@@ -587,7 +588,7 @@ GOODS_CODES = [  # (keywords in the description, code, name in the NSW list) - f
     (r"RUBBER|CAO\s+SU", "DRY12", "CAO SU"),
     (r"SULPHUR|SULFUR|LUU\s+HUYNH", "DRY29", "LƯU HUỲNH"),
     (r"\bSODA\b", "DRY49", "SODA"),
-    (r"\bBARITE\b|\bMINERAL|KHOANG\s+SAN", "DRY27", "KHOÁNG SẢN"),
+    (r"\bBARITE\b|BENTONITE|\bKAOLIN|\bSILICA|QUARTZ|\bMINERAL|KHOANG\s+SAN", "DRY27", "KHOÁNG SẢN"),
     (r"PULP|BOT\s+GIAY", "DRY04", "BỘT GIẤY"),
 ]
 LIQUID_CODES = [
@@ -595,9 +596,9 @@ LIQUID_CODES = [
     (r"\bLPG\b|KHI\s+HOA\s+LONG", "LIQ11", "LPG (KHÍ HÓA LỎNG)"), (r"CRUDE|DAU\s+THO", "LIQ15", "DẦU THÔ"),
     (r"GASOLINE|PETROL|XANG", "LIQ09", "XĂNG "), (r"MOLASSES|RI\s+MAT", "LIQ08", "RỈ MẬT"), (r"BITUMEN|ASPHALT|NHUA\s+DUONG", "LIQ05", "NHỰA ĐƯỜNG LỎNG"),
     (r"ACID|AXIT", "LIQ13", "A XÍT"), (r"CHEMICAL|HOA\s+CHAT", "LIQ04", "HÓA CHẤT LỎNG"),
-    (r"DIESEL|GASOIL|FUEL\s+OIL|\bOIL\b|\bDAU\b", "LIQ10", "DẦU"),
+    (r"DIESEL|GAS\s*OIL|FUEL\s+OIL|\bMGO\b|HSFO|VLSFO|\bOIL\b|\bDAU\b", "LIQ10", "DẦU"),
 ]
-_LIQUID = r"\bLIQUID|\bTANKER|\b(?<!PALM KERNEL )OIL\b(?!\s*(CAKE|MEAL|SEED))|\bLPG\b|\bLNG\b|CRUDE|GASOLINE|DIESEL|MOLASSES|HANG\s+LONG|DAU\s+(THO|GOC|THUC\s+VAT|AN|DIESEL)|ACID|BITUMEN"
+_LIQUID = r"\bLIQUID|\bTANKER|\b(?<!PALM KERNEL )OIL\b(?!\s*(CAKE|MEAL|SEED))|\bLPG\b|\bLNG\b|CRUDE|GASOLINE|DIESEL|GAS\s*OIL|FUEL\s+OIL|\bMGO\b|\bHSFO\b|\bVLSFO\b|MOLASSES|HANG\s+LONG|DAU\s+(THO|GOC|THUC\s+VAT|AN|DIESEL)|ACID|BITUMEN"
 
 
 def _tonnes(rec):
