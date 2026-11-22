@@ -66,7 +66,8 @@ export default function Export({ user }) {
           <div className="grid g3">
             <div className="field"><label className="f">Chức năng chứng từ (B5)</label><select value={form.doc_function || ''} onChange={set('doc_function')}>
               {Object.entries(opt.doc_functions).map(([k, v]) => <option key={k} value={k}>{k} – {v}</option>)}</select></div>
-            <div className="field"><label className="f">Số hồ sơ (B3)</label><input value={form.doc_no || ''} onChange={set('doc_no')} placeholder="để trống nếu NSW cấp" /></div>
+            <div className="field"><label className="f">Số hồ sơ (B3)</label><input value={form.doc_no || ''} onChange={set('doc_no')} placeholder="VD: 12345" />
+              <div className="hint">Để trống nếu số hồ sơ do Cổng NSW cấp.</div></div>
             <div className="field"><label className="f">Năm đăng ký (B4)</label><input value={form.doc_year || ''} onChange={set('doc_year')} /></div>
           </div>
           <div className="grid g3">
