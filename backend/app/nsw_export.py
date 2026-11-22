@@ -551,14 +551,16 @@ def _house_bls(plan, data):
             "A": i, "C": o.get("doc_year"), "D": o.get("doc_function"),
             "E": _v(rec, "shipper"), "F": _NOTIFY_IN_TEXT.sub("", _v(rec, "consignee") or "").strip(" .;,") or _v(rec, "consignee"),
             "G": _notify(rec, [])[0] or _v(rec, "consignee"),
+            "N": "9" if _v(rec, "container_no") else "3" if re.search(_LIQUID, N.strip_accents(_v(rec, "description") or "").upper()) else "10",
             "J": pod, "K": _coded(plan, data, HOUSE_SHEET, "locode", _v(rec, "pol"), "cảng xếp hàng"), "L": pod,
             "M": _v(rec, "place_of_delivery") or _v(rec, "pod"),
-            "O": _v(rec, "bl_no"), "P": _v(rec, "date_of_bl"), "Q": _v(rec, "bl_no"), "R": _v(rec, "date_of_bl"), "S": _v(rec, "date_of_bl"),
+            "O": _v(rec, "bl_no"), "P": _date(_v(rec, "date_of_bl")), "Q": _v(rec, "bl_no"), "R": _date(_v(rec, "date_of_bl")),
+            "S": _date(_v(rec, "shipped_on_board") or _v(rec, "date_of_bl")),  # departure = loaded on board (SGCL: same date as the B/L)
             "T": _pkg_count(_v(rec, "packages")) or ("0" if bulk else None),
             "U": _coded(plan, data, HOUSE_SHEET, "package", kind_raw, "loại kiện") if kind_raw else None,
             "V": _num(_v(rec, "gross_weight")) if _v(rec, "gross_weight") else None,
             "W": _coded(plan, data, HOUSE_SHEET, "unit", gwu, "đơn vị trọng lượng") if gwu else None,
-        }, [rec.get(x) for x in ("bl_no", "shipper", "consignee", "notify", "pod", "pol", "place_of_delivery", "date_of_bl", "packages",
+        }, [rec.get(x) for x in ("bl_no", "shipper", "consignee", "notify", "pod", "pol", "place_of_delivery", "date_of_bl", "shipped_on_board", "packages",
                                  "package_kind", "gross_weight")], data)
         plan.house_goods.append({k2: v for k2, v in {
             "B": _v(rec, "hs_code"), "C": _v(rec, "description"),
@@ -568,8 +570,6 @@ def _house_bls(plan, data):
         for x in ("description", "hs_code", "measurement", "container_no", "seal_no"):
             if rec.get(x):
                 plan.used_fields.add(rec[x]["id"])
-    if order and "N" not in (plan.tables[HOUSE_SHEET][0]):
-        plan.empty.append(f"{HOUSE_SHEET}!N - Loại hàng (Cargo Type): chứng từ không ghi mã loại hàng NSW → nhập tay nếu cần")
 
 
 ROB_ARTICLES = {
@@ -708,6 +708,10 @@ def _cargo_groups(plan, data):
                 plan.used_fields.add(f["id"])
         if any(groups[k]["C"] in ("DRY77", "LIQ16") for k in order):
             plan.warnings.append(f"{sheet}: có nhóm hàng không xác định được mã tên hàng cụ thể - đã ghi 'Hàng khô/lỏng khác' - sửa trong file Excel nếu cần.")
+
+
+def _date(v):
+    return (N.parse_date(v)[0] or v) if v else None
 
 
 def _pkg_count(v):

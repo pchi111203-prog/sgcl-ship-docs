@@ -654,3 +654,12 @@ def test_cargo_group_goods_codes():
     assert code("YELLOW CORN IN BULK (Animal Feed Raw Material)") == "DRY32"
     assert code("GRANULAR UREA IN BULK") == "DRY41"
     assert code("Đậu tương hạt") == "DRY19" and code("CRUDE PALM OIL IN BULK") == "LIQ02"
+
+
+def test_bl_dates_near_labels():
+    from app import extract
+    pg = [{"page_no": 1, "method": "ocr", "confidence": 0.9, "tables": [], "words": {}, "text": "\n".join([
+        "BILL OF LADING   B/L No. AB/CD-12345", "CLEAN SHIPPED ON BOARD   (08 SEPTEMBER 2023)",
+        "Freight payable at   Place and date of issue   (09 SEPTEMBER 2023)"])}]
+    r = {f["field_key"]: f["value"] for f in extract.extract_document("BILL_OF_LADING", pg)}
+    assert r["shipped_on_board"] == "08/09/2023" and r["date_of_bl"] == "09/09/2023"

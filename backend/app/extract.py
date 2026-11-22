@@ -180,6 +180,7 @@ H = {
     "latitude": ("Vĩ độ", [r"\blatitude\b", r"v[iĩ]\s+[dđ][oộ]"]),
     "longitude": ("Kinh độ", [r"\blongitude\b", r"kinh\s+[dđ][oộ]"]),
     "container_type": ("Loại container", [r"size\s*/\s*type", r"cont(ainer)?\.?\s*type", r"equipment\s*type", r"container\s+size"]),
+    "shipped_on_board": ("Ngày xếp hàng lên tàu (Shipped on board)", [r"shipped\s+on\s+board\s+date"]),
     "date_of_bl": ("Ngày phát hành B/L", [r"(shipped\s+on\s+board|on\s+board)\s+date", r"date\s+of\s+(b\s*/\s*l|issue)"]),
 }
 
@@ -213,7 +214,7 @@ DOC_HEADER_FIELDS = {
 BL_HEADER_FIELDS = ["bl_no", "shipper", "consignee", "notify", "port_of_loading", "port_of_discharge", "place_of_delivery",
                     "description", "packages", "gross_weight", "net_weight", "measurement", "date_of_bl", "container_type"]
 MULTILINE_PARTY = {"shipper", "consignee", "notify"}
-DATE_FIELDS = {"eta", "etd", "date_of_issue", "date_of_bl", "dob", "passport_expiry", "seaman_book_expiry", "issc_issue_date", "issc_expiry",
+DATE_FIELDS = {"eta", "etd", "date_of_issue", "date_of_bl", "shipped_on_board", "dob", "passport_expiry", "seaman_book_expiry", "issc_issue_date", "issc_expiry",
                "arrival", "departure"}
 
 
@@ -856,6 +857,31 @@ def extract_bl_document(pages):
                     break
             if "bl_no" in rec:
                 break
+    if "date_of_bl" not in rec or "shipped_on_board" not in rec:
+        # 'Place and date of issue   (08 SEPTEMBER 2023)', 'CLEAN SHIPPED ON BOARD   (08 SEPTEMBER 2023)', 'On board date: ...'
+        date_rx = r"(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}|\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9}\.?,?\s+\d{4}|[A-Za-z]{3,9}\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})"
+        for key, lab in (("date_of_bl", r"DATE\s+OF\s+ISSUE|ISSUED?\s+(ON|DATE)|NGAY\s+PHAT\s+HANH"),
+                         ("shipped_on_board", r"SHIPPED\s+ON\s+BOARD|ON\s+BOARD\s+DATE|LADEN\s+ON\s+BOARD")):
+            if key in rec:
+                continue
+            for p in pages:
+                ls = p["text"].splitlines()
+                for i, l in enumerate(ls):
+                    m = re.search(lab, N.strip_accents(l).upper())
+                    if not m:
+                        continue
+                    for cand in (l[m.end():], ls[i + 1] if i + 1 < len(ls) else ""):
+                        dm = re.search(date_rx, cand)
+                        if dm and N.parse_date(dm.group(1))[1]:
+                            rec[key] = {"value": dm.group(1), "page_no": p["page_no"], "method": p["method"] + "-date-near-label",
+                                        "confidence": 0.85 if p["method"] != "ocr" else _word_conf(p, dm.group(1))}
+                            break
+                    if key in rec:
+                        break
+                if key in rec:
+                    break
+        if "date_of_bl" not in rec and "shipped_on_board" in rec:
+            rec["date_of_bl"] = {**rec["shipped_on_board"], "method": rec["shipped_on_board"]["method"] + "-as-issue-date"}
     if "gross_weight" not in rec:
         for p in pages:
             m = re.search(r"weight\b[^\n\d]{0,25}(\d[\d.,]*\s*(MTS?|TNE|TONS?|KGS?|KGM)\b)", p["text"], re.I)
