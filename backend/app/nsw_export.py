@@ -610,8 +610,9 @@ def _tonnes(rec):
 
 
 def _cargo_groups(plan, data):
-    """One row per kind of cargo: group (C2_DO = import discharged here, C5 = transit not handled here), cargo type
-    (9 container / 3 liquid / 12 dry bulk), goods code and name of the NSW list, quantity and unit."""
+    """One row per kind of cargo: group (C2_DO = import discharged here, C5 = transit not handled here), cargo type,
+    goods code and name of the NSW list, quantity and unit.
+    Cargo type codes (confirmed by SGCL): 3 = hàng lỏng (LIQ.. goods codes), 9 = hàng container (CON..), 12 = hàng khô (DRY..)."""
     recs = data.records("cargo", ["CARGO_MANIFEST", "MANUAL"]) or data.records("cargo", ["BILL_OF_LADING"])
     if not recs:
         return

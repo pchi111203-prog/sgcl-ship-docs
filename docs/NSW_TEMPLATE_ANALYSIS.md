@@ -77,3 +77,11 @@ Quy ước chung các sheet bản khai: **A = nhãn (Việt/Anh), B = giá trị
 
 | Q11 | Có muốn hệ thống tự ghi `NIL` vào các ô bắt buộc không có thông tin (như file thực tế)? | Để trống + liệt kê |
 | Q12 | List of House B/L: file thực tế khai cả B/L thường (Master = House). Có muốn tự điền mỗi B/L một khối? | Chưa điền |
+
+
+## Quy ước đã được SGCL xác nhận
+- GD/NOA nhóm hàng, cột "Loại hàng": **3 = Hàng lỏng (mã tên hàng LIQ..)**, **9 = Hàng container (CON..)**, **12 = Hàng khô / hàng rời khô (DRY..)**.
+- Phân nhóm: C2_DO = hàng nhập khẩu dỡ tại cảng đến; C5 = hàng quá cảnh không xếp dỡ (ghi "HÀNG DỠ TẠI ..." ở Mô tả).
+- Chức danh thuyền viên và đơn vị ở Ship's store ghi đúng như chứng từ (không đổi mã).
+- Hành lý thuyền viên không có gì phải khai: NIL. Loại container không có trong chứng từ: Other.
+- List of House bill of lading: mỗi B/L một khối, số B/L ghi cả ô số vận đơn và số vận đơn gốc.
