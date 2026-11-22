@@ -185,7 +185,7 @@ def test_voyages_isolated():
     rd = client.get(f"/api/voyages/{b['id']}/export/readiness", headers=H).json()
     assert not rd["plan"]["tables"]
     # only form options and "attached declaration = 0" flags derived from this (empty) voyage - nothing from other voyages
-    assert all(c["kind"] == "option" or (c["kind"] == "derived" and c["value"] == "0") for c in rd["plan"]["cells"])
+    assert all(c["kind"] == "option" or (c["kind"] == "derived" and c["value"] in ("0", "NIL")) for c in rd["plan"]["cells"])
 
 
 def test_login_lockout():

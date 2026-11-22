@@ -125,6 +125,7 @@ TABLES = {
 }
 
 
+NIL_BLOCKS = {"General Declaration": (20, 31), "Notice ship to port": (20, 29)}  # B20 waste ... B31/B29 fresh water
 PORT_KEYS = {"pod", "pol", "port_of_arrival", "last_port", "next_port", "port_of_loading", "port_of_discharge", "place_of_delivery"}
 
 
@@ -285,8 +286,14 @@ def build_plan(conn, voyage_id):
                 v = (data.voyage.get(rest[0]) or "").strip()
                 if v:  # e.g. the notes typed when the voyage was created
                     _set(plan, sheet, ref, v, label, [{"doc": "Hồ sơ chuyến tàu (ghi chú khi tạo chuyến)", "status": "CONFIRMED"}], "voyage")
+                    continue
+                # no notes typed: the remarks written in the declarations ('Ghi chú / Remarks: ...')
+                fs = data.header("remarks", types) or data.header("remarks", sorted({data.dtype(f) for f in data.fields} - {"MANUAL"}))
+                if fs:
+                    _set(plan, sheet, ref, fs[0]["value"], label, [_src(fs[0], data)], "source")
+                    plan.used_fields.add(fs[0]["id"])
                 else:
-                    plan.empty.append(f"{sheet}!{ref} - {label} (ghi chú của hồ sơ chuyến đang trống)")
+                    plan.empty.append(f"{sheet}!{ref} - {label} (chưa có ghi chú)")
             elif kind == "manual":
                 plan.empty.append(f"{sheet}!{ref} - {label} (không có trong chứng từ - nhập tay nếu cần)")
             elif kind == "src":
@@ -345,6 +352,14 @@ def build_plan(conn, voyage_id):
     _dg_transporter_note(plan)
     _empty_containers(plan, data)
     _port_calls(plan, data)
+    # port-call block of GD / NOA: what no document states is written NIL (SGCL rule)
+    for sheet, (r0, r1) in NIL_BLOCKS.items():
+        for r in range(r0, r1 + 1):
+            ref = f"B{r}"
+            if (sheet, ref) not in plan.cells and not o.get(f"cell:{sheet}!{ref}"):
+                label = next((lb for rf, lb, _ in SHEET_HEADERS[sheet][0] if rf == ref), ref)
+                _set(plan, sheet, ref, "NIL", label, [{"doc": "Không chứng từ nào ghi → NIL (quy ước SGCL)", "status": "DERIVED"}], "derived")
+                plan.empty = [e for e in plan.empty if not e.startswith(f"{sheet}!{ref} ")]
     # derived header values for Goods Declaration
     rows = plan.tables.get("Goods Declaration", [])
     if rows:

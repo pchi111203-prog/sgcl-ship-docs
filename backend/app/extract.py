@@ -147,6 +147,7 @@ H = {
     "air_draft": ("Chiều cao tĩnh không", [r"air\s+draft", r"air\s+draught", r"clearance\s+height"]),
     "berth": ("Vị trí tàu tại cảng / Berth", [r"\bberth\b(?!ing)(?=\s*(no\.?)?\s*[:\-])", r"position\s+(of\s+the\s+ship\s+)?in\s+(the\s+)?port",
                                                r"v[iị]\s+tr[ií]\s+t[aà]u\s+t[aạ]i\s+c[aả]ng"]),  # berthing-plan tables: extract_operational
+    "remarks": ("Ghi chú / Remarks", [r"ghi\s+ch[uú]\s*/\s*remarks", r"\bremarks\b(?=\s*[:\-])", r"ghi\s+ch[uú](?=\s*[:\-])"]),
     "port_clearance_no": ("Số giấy phép rời cảng", [r"port\s+clearance\s+(no\.?|number)", r"(m[aã]\s+)?s[oố]\s+gi[aấ]y\s+ph[eé]p\s+r[oờ]i\s+c[aả]ng"]),
     "tug": ("Tàu lai", [r"\btug\s*(boat)?s?\b(?=\s*[:\-])", r"t[aà]u\s+lai(?=\s*[:\-])"]),
     "waste_request": ("Yêu cầu tiếp nhận chất thải", [r"y[eê]u\s+c[aầ]u\s+(v[eề]\s+)?(ph[uư][oơ]ng\s+ti[eệ]n\s+)?ti[eế]p\s+nh[aậ]n.{0,20}ch[aấ]t\s+th[aả]i",
@@ -460,7 +461,7 @@ def extract_header(pages, keys, all_keys=None):
                         if k not in MULTILINE_PARTY or len(nxt) >= 6:
                             break
                     val = _clean_value(" ".join(nxt))
-                if not val or len(val) > (400 if k in MULTILINE_PARTY else 160) or val.rstrip().endswith(":"):
+                if not val or len(val) > (400 if k in MULTILINE_PARTY or k == "remarks" else 160) or val.rstrip().endswith(":"):
                     continue  # "Date time:" = the next label, not a value
                 val = _post_header(k, val)
                 if not val:
@@ -974,7 +975,7 @@ def normalise_field(key, value):
     return re.sub(r"\s+", " ", v)
 
 
-OPERATION_KEYS = ["berth", "port_clearance_no", "tug", "waste_request", "pilot_on_board", "berthing_time"]
+OPERATION_KEYS = ["berth", "port_clearance_no", "tug", "waste_request", "pilot_on_board", "berthing_time", "remarks"]
 _MONTHS = {m: i for i, m in enumerate(["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], start=1)}
 
 
