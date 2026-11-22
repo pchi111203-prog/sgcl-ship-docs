@@ -289,6 +289,7 @@ def build_plan(conn, voyage_id):
     _stores(plan, data)
     _passengers(plan, data)
     _goods(plan, data)
+    _house_bls(plan, data)
     _dg(plan, data)
     _dg_transporter_note(plan)
     _empty_containers(plan, data)
@@ -307,7 +308,6 @@ def build_plan(conn, voyage_id):
     for sheet, cell in DOC_FUNCTION_CELLS.items():
         if cell and o.get("doc_function"):
             _set(plan, sheet, cell, o["doc_function"], "Chức năng của chứng từ", [{"doc": "Tùy chọn xuất file", "status": "CONFIRMED"}], "option")
-    plan.warnings.append("Sheet 'List of House bill of lading': chưa điền tự động (cần quy ước House/Master B/L) → nhập trong Excel nếu có hàng gom.")
     plan.auto_codes = dict(data.auto_codes)
     return plan, data
 
@@ -368,8 +368,6 @@ def _crew(plan, data):
             "G": data.opts.get("crew_passport_type") or None, "H": _v(rec, "passport_no"), "I": _v(rec, "passport_expiry"),
             "J": _coded(plan, data, sheet, "gender", _v(rec, "gender"), "giới tính"),
         }, nf + [rec.get(k) for k in ("rank", "nationality", "dob", "pob", "passport_no", "passport_expiry", "gender")], data)
-    if plan.tables.get(sheet) and not data.opts.get("crew_passport_type"):
-        plan.warnings.append("Crew list cột G 'Loại hộ chiếu' để trống: chứng từ không ghi loại giấy tờ - chọn tại Tùy chọn xuất file.")
 
 
 def _effects(plan, data):
@@ -445,6 +443,65 @@ def _goods(plan, data):
                              f"(B/L {', '.join(missing_ct[:8])}{'…' if len(missing_ct) > 8 else ''}) → chọn tại Kiểm tra và xác nhận › tab Hàng hóa.")
 
 
+HOUSE_SHEET = "List of House bill of lading"
+HOUSE_BLOCK = (4, 5)  # one block per B/L: row 4 B/L data, 5 lookups, 6 goods headings, 7 goods, 8 spacing
+
+
+def _house_bls(plan, data):
+    """Every B/L of the voyage is one block of 'List of House bill of lading' (SGCL fills ordinary B/Ls here too,
+    the B/L number being both house and master number) - B/L documents first, the manifest line completes them."""
+    by_bl, order = {}, []
+    for src in (data.records("cargo", ["BILL_OF_LADING"]), data.records("cargo", ["CARGO_MANIFEST", "MANUAL"])):
+        for rec in src:
+            k = N.norm_id(_v(rec, "bl_no"))
+            if not k:
+                continue
+            if k not in by_bl:
+                by_bl[k] = {}
+                order.append(k)
+            for f, v in rec.items():
+                by_bl[k].setdefault(f, v)  # the B/L wins, the manifest fills what the B/L does not state
+    o = data.opts
+    plan.house_goods = []
+    for i, k in enumerate(order, start=1):
+        rec = by_bl[k]
+        gwu = _unit_of(rec, "gross_weight")
+        bulk = re.search(r"\bBULK\b|H[AÀ]NG\s+R[OỜ]I", N.strip_accents(" ".join(_v(rec, x) or "" for x in ("description", "packages", "package_kind"))).upper()) \
+            or re.search(r"HANG\s+ROI", N.strip_accents(" ".join(_v(rec, x) or "" for x in ("description", "packages"))).upper())
+        kind_raw = _v(rec, "package_kind") or ("BULK" if bulk else None)
+        pod = _coded(plan, data, HOUSE_SHEET, "locode", _v(rec, "pod"), "cảng dỡ hàng")
+        _row(plan, HOUSE_SHEET, {
+            "A": i, "C": o.get("doc_year"), "D": o.get("doc_function"),
+            "E": _v(rec, "shipper"), "F": _v(rec, "consignee"), "G": _v(rec, "notify"),
+            "J": pod, "K": _coded(plan, data, HOUSE_SHEET, "locode", _v(rec, "pol"), "cảng xếp hàng"), "L": pod,
+            "M": _v(rec, "place_of_delivery") or _v(rec, "pod"),
+            "O": _v(rec, "bl_no"), "P": _v(rec, "date_of_bl"), "Q": _v(rec, "bl_no"), "R": _v(rec, "date_of_bl"), "S": _v(rec, "date_of_bl"),
+            "T": _pkg_count(_v(rec, "packages")) or ("0" if bulk else None),
+            "U": _coded(plan, data, HOUSE_SHEET, "package", kind_raw, "loại kiện") if kind_raw else None,
+            "V": _num(_v(rec, "gross_weight")) if _v(rec, "gross_weight") else None,
+            "W": _coded(plan, data, HOUSE_SHEET, "unit", gwu, "đơn vị trọng lượng") if gwu else None,
+        }, [rec.get(x) for x in ("bl_no", "shipper", "consignee", "notify", "pod", "pol", "place_of_delivery", "date_of_bl", "packages",
+                                 "package_kind", "gross_weight")], data)
+        plan.house_goods.append({k2: v for k2, v in {
+            "B": _v(rec, "hs_code"), "C": _v(rec, "description"),
+            "D": _num(_v(rec, "gross_weight")) if _v(rec, "gross_weight") else None,
+            "E": _num(_v(rec, "measurement")) if _v(rec, "measurement") else None,
+            "F": _v(rec, "container_no"), "G": _v(rec, "seal_no")}.items() if v not in (None, "")})
+        for x in ("description", "hs_code", "measurement", "container_no", "seal_no"):
+            if rec.get(x):
+                plan.used_fields.add(rec[x]["id"])
+    if order and "N" not in (plan.tables[HOUSE_SHEET][0]):
+        plan.empty.append(f"{HOUSE_SHEET}!N - Loại hàng (Cargo Type): chứng từ không ghi mã loại hàng NSW → nhập tay nếu cần")
+
+
+def _pkg_count(v):
+    """Number of packages only when it is a count ('1,200 BAGS'), not a weight/volume ('5,800 MT IN BULK')."""
+    q, u = N.parse_number(v)
+    if q is None or (u and re.fullmatch(r"(MTS?|TNE|TONS?|T|KGS?|KGM|LBS?|M3|M³|CBM|MTQ|L|LTRS?|LÍT|LIT)", u.upper())):
+        return None
+    return N.fmt_number(q)
+
+
 def _ctype(plan, rec, missing):
     v = _v(rec, "container_type")
     valid = N.CODES["container_types"] or ["Container 20", "Container 40", "Container 45", "Other"]
@@ -453,8 +510,9 @@ def _ctype(plan, rec, missing):
     if v:
         plan.warnings.append(f"Goods Declaration: B/L {_v(rec, 'bl_no')} có loại container '{v}' (nhiều loại trên 1 dòng hoặc không đúng danh mục) "
                              "→ cần chọn một loại tại Kiểm tra và xác nhận.")
-    missing.append(_v(rec, "bl_no") or "?")
-    return None
+        missing.append(_v(rec, "bl_no") or "?")
+        return None
+    return "Other"  # no container type in the documents (bulk cargo...): SGCL writes 'Other'
 
 
 def _dg(plan, data):
@@ -555,6 +613,26 @@ def write_workbook(template, plan, out_path):
                         continue
                     sh.set(f"{col}{r}", v)
                     written[(sheet, f"{col}{r}")] = str(v)
+    blocks = plan.tables.get(HOUSE_SHEET, [])
+    if blocks and HOUSE_SHEET in book.sheet_names:
+        sh = book.sheet(HOUSE_SHEET)
+        b0, bh = HOUSE_BLOCK
+        heads = {col: sh.value(f"{col}{b0 + 2}") for col in "BCDEFG"}  # goods headings of the block (cleared by the copy)
+        sh.regenerate_rows(b0, b0, b0 + bh - 1, len(blocks), block=HOUSE_BLOCK)
+        goods = getattr(plan, "house_goods", [])
+        for i, row in enumerate(blocks):
+            top = b0 + i * bh
+            for col, v in heads.items():
+                if v:
+                    sh.set(f"{col}{top + 2}", v)
+                    written[(HOUSE_SHEET, f"{col}{top + 2}")] = str(v)  # headings of the repeated block, not left-over data
+            for col, v in row.items():
+                if not col.startswith("_"):
+                    sh.set(f"{col}{top}", v)
+                    written[(HOUSE_SHEET, f"{col}{top}")] = str(v)
+            for col, v in (goods[i] if i < len(goods) else {}).items():
+                sh.set(f"{col}{top + 3}", v)
+                written[(HOUSE_SHEET, f"{col}{top + 3}")] = str(v)
     for (sheet, ref), v in plan.cells.items():
         book.sheet(sheet).set(ref, v)
         written[(sheet, ref)] = str(v)

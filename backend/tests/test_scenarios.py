@@ -71,7 +71,9 @@ def test_scenario1_consistent_set_exports():
     rd = client.get(f"/api/voyages/{vid}/export/readiness", headers=H).json()
     assert not rd["ready"] and rd["unconfirmed_count"] > 0  # must confirm first
     # container type: 5 lines read from the manifest (ISO codes), line 6 has none -> warning, staff chooses
-    assert any("1 dòng chưa có loại container" in w for w in rd["warnings"]), rd["warnings"]
+    # container type: 5 lines read from the manifest (ISO codes), line 6 has none -> 'Other' (SGCL rule), staff may still choose
+    gd_rows = rd["plan"]["tables"]["Goods Declaration"]["rows"]
+    assert sum(1 for r in gd_rows if r.get("V") == "Other") == 1 and not any("chưa có loại container" in w for w in rd["warnings"])
     fields = client.get(f"/api/voyages/{vid}/fields", headers=H).json()["fields"]
     mf = [f for f in fields if f["doc_type"] == "CARGO_MANIFEST" and f["section"] == "cargo"]
     ct = {f["record_key"]: (f["original_value"], f["value"]) for f in mf if f["field_key"] == "container_type"}
