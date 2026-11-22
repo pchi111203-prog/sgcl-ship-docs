@@ -625,6 +625,7 @@ def test_imprecise_port_takes_code_of_same_port_elsewhere():
         data = nsw_export.Data(c, v["id"])
         assert data.code("locode", "LONG AN PORT, VIETNAM") == ("VNLAP", True)
         assert data.code("locode", "SOME UNKNOWN PLACE") == ("SOME UNKNOWN PLACE", False)
+        assert data.vietnamese_port("LONG AN PORT, VIETNAM") == "CẢNG QUỐC TẾ LONG AN"
 
 
 def test_operational_facts_from_sof_clearance_and_plan():

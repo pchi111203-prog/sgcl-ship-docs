@@ -189,6 +189,20 @@ class Data:
                 order.setdefault(k, (f["document_id"] or 10 ** 9, f["record_index"]))
         return [recs[k] for k in sorted(recs, key=lambda k: order[k])]
 
+    def vietnamese_port(self, raw):
+        """The same port written in Vietnamese somewhere in this voyage ('LONG AN PORT, VIETNAM' -> 'CẢNG QUỐC TẾ LONG AN'),
+        without the English translation in brackets; the value as written when no Vietnamese name exists."""
+        from .crosscheck import _cmp_port, _is_vietnamese
+        if not raw:
+            return raw
+        if _is_vietnamese(raw):
+            return re.sub(r"\s*\(.*?\)", "", raw).strip().upper()
+        names = [f["value"] for f in self.fields if f["field_key"] in PORT_KEYS and f["value"]] + [self.voyage.get("port_of_arrival") or ""]
+        for other in sorted({n for n in names if n and _is_vietnamese(n)}, key=len):
+            if _cmp_port(raw, other):
+                return re.sub(r"\s*\(.*?\)", "", other).strip().upper()
+        return raw
+
     def _same_port_code(self, raw):
         """'LONG AN PORT, VIETNAM' is not precise enough for the UN/LOCODE list, but another document of this voyage
         names the same port precisely ('Cảng Quốc tế Long An' = VNLAP): use that code when exactly one code results."""
@@ -553,7 +567,7 @@ def _house_bls(plan, data):
             "G": _notify(rec, [])[0] or _v(rec, "consignee"),
             "N": "9" if _v(rec, "container_no") else "3" if re.search(_LIQUID, N.strip_accents(_v(rec, "description") or "").upper()) else "10",
             "J": pod, "K": _coded(plan, data, HOUSE_SHEET, "locode", _v(rec, "pol"), "cảng xếp hàng"), "L": pod,
-            "M": _v(rec, "place_of_delivery") or _v(rec, "pod"),
+            "M": data.vietnamese_port(_v(rec, "place_of_delivery") or _v(rec, "pod")),
             "O": _v(rec, "bl_no"), "P": _date(_v(rec, "date_of_bl")), "Q": _v(rec, "bl_no"), "R": _date(_v(rec, "date_of_bl")),
             "S": _date(_v(rec, "shipped_on_board") or _v(rec, "date_of_bl")),  # departure = loaded on board (SGCL: same date as the B/L)
             "T": _pkg_count(_v(rec, "packages")) or ("0" if bulk else None),
