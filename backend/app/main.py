@@ -93,13 +93,22 @@ def _reprocess_after_update():
                            "AND p.id NOT IN (%s) AND NOT EXISTS (SELECT 1 FROM extracted_fields f WHERE f.document_id=x.id "
                            "AND f.status IN ('EDITED','CONFIRMED'))" % (",".join(str(d["id"]) for d in docs) or "0"))
         docs += parts
+        ids = {d["id"] for d in docs}
+        # documents kept because staff edited / confirmed values: the new reading only ADDS what was not read before
+        kept = [d for d in db.rows(c, "SELECT id, voyage_id FROM documents WHERE status='EXTRACTED'") if d["id"] not in ids]
         for d in docs:
             c.execute("UPDATE documents SET status='PROCESSING', error=NULL WHERE id=?", (d["id"],))
-    if not docs:
+    if not docs and not kept:
         return
 
     def work():
         voyages = []
+        for d in kept:
+            try:
+                if _add_missing_fields(d["id"]) and d["voyage_id"] not in voyages:
+                    voyages.append(d["voyage_id"])
+            except Exception:
+                traceback.print_exc()
         for d in docs:
             process_document(d["id"], "Hệ thống (cập nhật)")
             if d["voyage_id"] not in voyages:
@@ -698,6 +707,40 @@ def process_document(did, user):
                 crosscheck.run(c, vid, "Hệ thống (sau khi đọc xong chứng từ)")
     except Exception:
         traceback.print_exc()
+
+
+def _add_missing_fields(did):
+    """Read a document again (from its stored pages) and add the voyage/port-call values that the earlier reading
+    missed (berth, port clearance no., remarks, B/L dates ...). Existing values - read, edited or confirmed - stay."""
+    with db.tx() as c:
+        d = db.row(c, "SELECT * FROM documents WHERE id=?", (did,))
+        if not d or not d["doc_type"]:
+            return 0
+        if d["pages_cache"] and os.path.exists(os.path.join(db.UPLOAD_DIR, d["pages_cache"])):
+            with open(os.path.join(db.UPLOAD_DIR, d["pages_cache"]), encoding="utf-8") as fh:
+                pages = json.load(fh)
+        else:
+            pages = [{"page_no": r["page_no"], "text": r["text"] or "", "method": r["method"] or "text", "confidence": r["confidence"] or 0.9,
+                      "tables": [], "words": {}} for r in db.rows(c, "SELECT * FROM document_pages WHERE document_id=? ORDER BY page_no", (did,))]
+    if not pages:
+        return 0
+    fields = [f for f in extract.extract_document(d["doc_type"], pages) if f["record_key"] == "header" or f["section"] == "cargo"]
+    added = 0
+    with db.tx() as c:
+        have = {(r["section"], r["record_key"], r["field_key"]) for r in
+                db.rows(c, "SELECT section, record_key, field_key FROM extracted_fields WHERE document_id=?", (did,))}
+        for f in fields:
+            if (f["section"], f["record_key"], f["field_key"]) in have:
+                continue
+            dtype, unit = extract.field_meta(f["field_key"], f["original_value"])
+            c.execute("INSERT INTO extracted_fields(voyage_id,document_id,section,record_key,record_index,field_key,field_label,original_value,value,"
+                      "page_no,confidence,method,status,updated_at,data_type,unit) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'EXTRACTED',?,?,?)",
+                      (d["voyage_id"], did, f["section"], f["record_key"], f["record_index"], f["field_key"], f["field_label"],
+                       f["original_value"], f["value"], f["page_no"], f["confidence"], f["method"], db.now(), dtype, unit))
+            added += 1
+        if added:
+            db.log(c, d["voyage_id"], "EXTRACT_ADD", "Hệ thống (cập nhật)", reason=f"{d['original_name']}: bổ sung {added} trường đọc được sau cập nhật")
+    return added
 
 
 def _complete_passport_letters(c, vid, user):
