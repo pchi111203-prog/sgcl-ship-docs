@@ -303,6 +303,12 @@ def build_plan(conn, voyage_id):
                     skip = ("MANUAL",) if key in OPERATION_KEYS else ("OTHER", "REFERENCE", "MANUAL")  # port-call facts: SOF, berthing plan...
                     others = [t for t in {data.dtype(f) for f in data.fields} if t not in types and t not in skip]
                     fs = data.header(key, sorted(others))
+                if fs and key == "port_clearance_no":
+                    # the clearance of the LAST port before Viet Nam: the number naming its port code (SPB.IDPNK... = Pontianak)
+                    lp = data.header("last_port", [GD, NOA]) or data.header("last_port")
+                    lcode = data.code("locode", lp[0]["value"])[0] if lp else None
+                    if lcode:
+                        fs = [f for f in fs if lcode in (f["value"] or "").upper().replace(" ", "")] or fs
                 if not fs and key in ROB_ARTICLES:
                     fs = _rob_from_stores(data, key)  # quantity on board from the Ship's Stores Declaration
                 if not fs:
@@ -356,6 +362,8 @@ def build_plan(conn, voyage_id):
     for sheet, (r0, r1) in NIL_BLOCKS.items():
         for r in range(r0, r1 + 1):
             ref = f"B{r}"
+            if ref == "B23":
+                continue  # last-port clearance number: left empty when the documents have no clearance (SGCL)
             if (sheet, ref) not in plan.cells and not o.get(f"cell:{sheet}!{ref}"):
                 label = next((lb for rf, lb, _ in SHEET_HEADERS[sheet][0] if rf == ref), ref)
                 _set(plan, sheet, ref, "NIL", label, [{"doc": "Không chứng từ nào ghi → NIL (quy ước SGCL)", "status": "DERIVED"}], "derived")
