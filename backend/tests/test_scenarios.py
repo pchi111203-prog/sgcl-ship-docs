@@ -685,3 +685,15 @@ def test_voyage_memory_port_calls():
     rows = [{k: v["value"] for k, v in r["fields"].items()} for r in extract.extract_voyage_memory([pg])]
     assert [r["port_name"] for r in rows] == ["JAKARTA-INDONESIA", "SAMPIT-INDONESIA", "PONTIANAK-INDONESIA"]
     assert rows[0]["arrival"] == "22/05/2023" and rows[2]["departure"] == "15/08/2023"  # OCR year 2025 set to 2023
+
+
+def test_issc_dates_vietnam_register_form():
+    from app import extract
+    t = "\n".join(["Cục đăng kiểm Việt Nam", "VIETNAM REGISTER", "No.: VR-ISPS-22-0419", "Giấy chứng nhận quốc tế về an ninh tàu biển",
+                   "International ship security certificate", "by VIETNAM REGISTER", "Tên tàu:   M/V HTP OCEAN",
+                   "Giấy chứng nhận này được cấp dựa trên kết quả Thẩm tra Lần đầu ngày: 10/01/2022",
+                   "Giấy chứng nhận này có hiệu lực đến: 09/01/2027, với điều kiện phải được kiểm tra xác nhận",
+                   "This Certificate is valid until: 09 January 2027", "Cấp tại: Hải Phòng, Việt Nam",
+                   "Ngày cấp: 14/01/2022", "Date of issue: 14 January 2022"])
+    f = {x["field_key"]: x["value"] for x in extract.extract_document("CERTIFICATE", [{"page_no": 1, "method": "text", "confidence": 1, "tables": [], "text": t}])}
+    assert f["issc_issue_date"] == "14/01/2022" and f["issc_expiry"] == "09/01/2027" and f["issc_issuer"] == "VR"
