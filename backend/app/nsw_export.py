@@ -425,7 +425,7 @@ def _v(rec, k):
     return (rec.get(k) or {}).get("value")
 
 
-AS_WRITTEN = {("rank", None), ("unit", "Ship's store declaration")}  # SGCL: written exactly as in the documents, no code mapping
+AS_WRITTEN = {("rank", None)}  # SGCL: written exactly as in the documents, no code mapping
 
 
 def _coded(plan, data, sheet, kind, raw, label):
@@ -459,6 +459,67 @@ def _effects(plan, data):
              nf + [rec.get("rank"), rec.get("effects")], data)
 
 
+# ------------------------------------------------ ship's stores in English (SGCL): article, unit code of the NSW list, location
+STORE_UNITS = [  # unit as written -> code of the 'DonVi' list
+    (r"^(MT|MTS|TNE|TON|TONS|TAN|T)$", "TNE"), (r"^(KG|KGS|KGM|KILO\w*)$", "KGM"), (r"^(L|LT|LTR|LTRS|LIT|LITRE|LITER|LITRES|LITERS)$", "LTR"),
+    (r"^(M3|M³|CBM|MTQ|KHOI)$", "MTQ"), (r"^(CAY|CTN|CTNS|CARTON\w*|THUNG|CT)$", "CT"), (r"^(BAO|BAG|BAGS)$", "BAG"),
+    (r"^(CHAI|BOTTLE\w*|BTL|LON|CAN|CANS|CAI|CHIEC|PCE|PCS|PIECE\w*|EA)$", "PCE"), (r"^(BO|SET|SETS)$", "SET"),
+    (r"^(CUON|ROLL\w*|ROL)$", "ROL"), (r"^(DOI|PAIR\w*|PR)$", "PR"), (r"^(GOI|HOP|PKG|PACK\w*|BOX\w*)$", "PKG"),
+    (r"^(THUNG\s*PHUY|PHUY|DRUM\w*|BBL|BARREL\w*)$", "BBL"),
+]
+STORE_ARTICLES = [
+    (r"DAU\s+NHIEN\s+LIEU|DAU\s+FO\b", "Fuel Oil"), (r"DAU\s+DIESEL|DAU\s+DO\b", "Diesel Oil"), (r"DAU\s+NHON|DAU\s+BOI\s+TRON", "Lubricating Oil"),
+    (r"NUOC\s+NGOT", "Fresh Water"), (r"THUOC\s+LA", "Cigarettes"), (r"RUOU", "Spirits"), (r"\bBIA\b", "Beer"), (r"NUOC\s+GIAI\s+KHAT", "Soft drinks"),
+    (r"LUONG\s+THUC|THUC\s+PHAM", "Provisions"), (r"\bSON\b", "Paint"), (r"HOA\s+CHAT", "Chemicals"), (r"THUOC\s+(Y\s+TE|CHUA\s+BENH)", "Medicines"),
+]
+STORE_PLACES = [  # Vietnamese words of a location on board -> English
+    (r"KET\s+DAU\s+(DO|DIESEL)\s+TRUC\s+NHAT\s*&\s*DU\s+TRU", "DO service & storage tanks"), (r"PHUY\s+BUONG\s+MAY", "drums in engine room"),
+    (r"HAM\s+HANG", "Cargo hold"), (r"KET\s+DAU\s+FO", "FO tank"), (r"KET\s+DAU\s+DO", "DO tank"), (r"KET\s+DAU\s+NHON", "LO tank"), (r"KET\s+NUOC\s+NGOT", "FW tank"),
+    (r"KET\s+NUOC\s+DAN", "Ballast tank"), (r"\bKET\b", "tank"), (r"\bSO\s+(?=\d)", "No."), (r"TRAI\s*/\s*PHAI", "P/S"),
+    (r"\bTRAI\b", "Port"), (r"\bPHAI\b", "Stbd"), (r"TRUC\s+NHAT", "service"), (r"DU\s+TRU", "storage"), (r"\bPHUY\b", "drums"),
+    (r"BUONG\s+MAY", "engine room"), (r"TU\s+KHO\s+NGOAI\s+QUAN", "Bonded store"), (r"KHO\s+NGOAI\s+QUAN", "Bonded store"),
+    (r"PHONG\s+THUYEN\s+TRUONG", "Master's cabin"), (r"KHO\s+THUC\s+PHAM", "Provision store"), (r"KHO\s+LANH", "Cold room"),
+    (r"\bKHO\b", "store"), (r"\bBOONG\b", "deck"), (r"\bMUI\b", "forecastle"), (r"\bLAI\b", "aft"), (r"\bTU\b", "locker"), (r"\bVA\b", "&"),
+]
+
+
+def _english(text, table, whole=False):
+    """English wording of a store line: the English already written in brackets, else the known words translated;
+    the text as written when it cannot be translated completely."""
+    if not text:
+        return text
+    m = re.search(r"\(([A-Za-z][A-Za-z0-9 ,./&'\-]+)\)\s*$", text)
+    if whole and m:
+        return m.group(1).strip()  # 'Dầu nhiên liệu (Fuel Oil)' -> 'Fuel Oil'
+    t = N.strip_accents(text).upper()
+    if whole:
+        return next((en for rx, en in table if re.search(rx, t)), text)
+    for rx, en in table:
+        t = re.sub(rx, en, t)
+    words = re.findall(r"[A-Z]{2,}", t)
+    if any(w not in {"FO", "DO", "LO", "FW", "P", "S"} for w in words):
+        return m.group(1).strip() if m else text  # untranslated Vietnamese left
+    t = re.sub(r"\s{2,}", " ", t).strip()
+    return t[0].upper() + t[1:] if t else text
+
+
+def _store_unit(u):
+    k = N.strip_accents(u or "").upper().strip(" .")
+    code = next((cd for rx, cd in STORE_UNITS if re.match(rx, k)), None)
+    if not code:
+        return u
+    units = N.CODES.get("units") or []
+    return next((x for x in units if x.strip() == code), code)  # exactly as in the NSW list ('CT ' has a trailing space)
+
+
+def _thousands(q):
+    s = N.fmt_number(q)
+    if s is None or not re.fullmatch(r"-?\d+(\.\d+)?", s):
+        return s
+    i, _, d = s.partition(".")
+    return f"{int(i):,}" + (f".{d}" if d else "")
+
+
 def _stores(plan, data):
     sheet = "Ship's store declaration"
     for rec in data.records("store"):
@@ -467,8 +528,10 @@ def _stores(plan, data):
             m = re.search(r"\d\s*([^\W\d_][^\W_]*³?)", _v(rec, "quantity") or "")
             u = m.group(1) if m else u
         unit_raw = _v(rec, "unit") or u
-        _row(plan, sheet, {"A": _v(rec, "article"), "B": N.fmt_number(q) if q is not None else _v(rec, "quantity"),
-                           "C": _coded(plan, data, sheet, "unit", unit_raw, "đơn vị tính"), "D": _v(rec, "location")},
+        unit = data.opts.get(f"code:unit:{N.norm_text(unit_raw)}") if unit_raw else None
+        _row(plan, sheet, {"A": _english(_v(rec, "article"), STORE_ARTICLES, whole=True),
+                           "B": _thousands(q) if q is not None else _v(rec, "quantity"),  # 2450 -> 2,450
+                           "C": unit or _store_unit(unit_raw), "D": _english(_v(rec, "location"), STORE_PLACES)},
              [rec.get(k) for k in ("article", "quantity", "unit", "location")], data)
 
 

@@ -82,10 +82,11 @@ Quy ước chung các sheet bản khai: **A = nhãn (Việt/Anh), B = giá trị
 ## Quy ước đã được SGCL xác nhận
 - GD/NOA nhóm hàng, cột "Loại hàng": **3 = Hàng lỏng (mã tên hàng LIQ..)**, **9 = Hàng container (CON..)**, **12 = Hàng khô / hàng rời khô (DRY..)**.
 - Phân nhóm: C2_DO = hàng nhập khẩu dỡ tại cảng đến; C5 = hàng quá cảnh không xếp dỡ (ghi "HÀNG DỠ TẠI ..." ở Mô tả).
-- Chức danh thuyền viên và đơn vị ở Ship's store ghi đúng như chứng từ (không đổi mã).
+- Chức danh thuyền viên ghi đúng như chứng từ (không đổi mã).
 - Hành lý thuyền viên không có gì phải khai: NIL. Loại container không có trong chứng từ: Other.
 - List of House bill of lading: mỗi B/L một khối, số B/L ghi cả ô số vận đơn và số vận đơn gốc.
 - Goods Declaration: hàng rời → Tổng số kiện B6 = 0, Loại kiện B7 = NE (Declaration list cột O); Notify tìm trong mọi chứng từ của cùng B/L (kể cả "Bên thông báo:" trong ô Consignee), không có thì = Consignee; Net weight không ghi = Gross; Kích thước/thể tích không ghi = 0; Đơn vị thể tích = MTQ; Cảng giao hàng/cảng đích (U) = Cảng dỡ hàng (P).
 - List of House bill of lading: Địa điểm giao hàng (M) ghi tên cảng tiếng Việt (tên cùng cảng ở chứng từ khác, bỏ phần tiếng Anh trong ngoặc); Notify như Goods Declaration; Loại hàng (N) theo danh mục "Loại hàng hóa": 9 container, 3 hàng lỏng, 10 hàng rời khô (BREAKBULK, như file HQ_NHAP); Ngày phát hành vận đơn = Ngày phát hành vận đơn gốc = "Place and date of issue" trên B/L; Ngày khởi hành = ngày "Shipped on board".
 - General Declaration / Notice ship to port: B13 Ghi chú = ghi chú khi tạo chuyến, nếu trống thì lấy "Ghi chú / Remarks" trong GD/NOA; khối B20–B31 (GD) và B20–B29 (NOA) có thì ghi, không chứng từ nào ghi thì NIL - trừ B23 "Mã số Giấy phép rời cảng" = số giấy phép rời cảng của cảng cuối cùng trước khi vào Việt Nam (Port Clearance của cảng rời cuối), không có thì để trống. Mọi quy ước áp dụng cho tất cả các chuyến.
 - Ship's store declaration: B6 "Số người trên tàu" và B7 "Thời gian ở cảng" lấy từ Bản khai dự trữ tàu (mục 6, 7); không ghi số người thì lấy số thuyền viên.
+- Ship's store declaration: Tên vật phẩm và Vị trí trên tàu ghi tiếng Anh (lấy phần tiếng Anh trong ngoặc hoặc dịch theo bảng từ); Đơn vị chọn theo danh mục NSW (MT→TNE, Lít→LTR, Kg→KGM, Cây→CT, Chai→PCE, m3→MTQ, Bao→BAG); Số lượng có dấu phẩy hàng nghìn (2,450).
