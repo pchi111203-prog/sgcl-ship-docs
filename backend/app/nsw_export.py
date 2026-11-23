@@ -467,7 +467,15 @@ STORE_UNIT_SYNONYMS = {  # English / abbreviations -> code of the NSW unit list 
     "PC": "PCE", "PCS": "PCE", "PIECE": "PCE", "PIECES": "PCE", "EA": "PCE", "BOTTLE": "UNA", "BOTTLES": "UNA", "BTL": "UNA", "BTLS": "UNA",
     "CAN": "UNL", "CANS": "UNL", "BOX": "UNK", "BOXES": "UNK", "CARTON": "UNK", "CARTONS": "UNK", "CTN": "UNK", "CTNS": "UNK",
     "PACK": "PKG", "PACKS": "PKG", "PACKET": "PKG", "PACKETS": "PKG", "SETS": "SET", "ROLL": "ROL", "ROLLS": "ROL",
-    "PAIR": "PR", "PAIRS": "PR", "DOZEN": "DZN", "DRUM": None, "DRUMS": None,
+    "PAIR": "PR", "PAIRS": "PR", "DOZEN": "DZN", "DOZ": "DZN", "DRUM": "BBL", "DRUMS": "BBL", "BARREL": "BBL", "BARRELS": "BBL",
+    "M2": "MTK", "SQM": "MTK", "SQ.M": "MTK", "M": "MTR", "MET": "MTR", "METER": "MTR", "METRE": "MTR", "METERS": "MTR", "METRES": "MTR",
+    "CM": "CEN", "MM": "MMTR", "KM": "KMTR", "MG": "MGRM", "GAL": "GLL", "GALLON": "GLL", "GALLONS": "GLL", "LB": "LBS", "POUND": "LBS",
+    "POUNDS": "LBS", "OZ": "ONZ", "OUNCE": "ONZ", "PINT": "PTI", "SHEET": "TO", "SHEETS": "TO", "TUBE": "UNA", "TUBES": "UNA", "JAR": "UNA",
+    "JARS": "UNA", "VIAL": "UNA", "BINH": "UNA", "TIN": "UNL", "TINS": "UNL", "BAR": "UNT", "BARS": "UNT", "BLISTER": "VI", "TABLET": "UNV",
+    "TABLETS": "UNV", "CAPSULE": "UNV", "CAPSULES": "UNV", "PILL": "UNV", "BOOK": "UNB", "BOOKS": "UNB", "HEAD": "UNC", "HEADS": "UNC",
+    "FRUIT": "UNQ", "CASE": "UNK", "CASES": "UNK", "BUNDLE": "UNK", "BUNDLES": "UNK", "SACK": "UNK", "SACKS": "UNK", "THUNG": "UNK",
+    "PHUY": "BBL", "THUNG PHUY": "BBL", "KWH": "KHW", "UNITS": "UNIT", "KILOGAM": "KGM", "KI LO GAM": "KGM", "GAM": "GRM", "MET KHOI": "MTQ",
+    "KHOI": "MTQ", "MET VUONG": "MTK", "HU": "UNA", "LO": "UNA", "TUYP": "UNA", "GALONG": "GLL", "KHAY": "UNK", "SOT": "UNK", "THUNG CARTON": "UNK",
 }
 
 
@@ -492,6 +500,14 @@ def _store_unit(u):
         part = [code for code, name in names.items() if key in [norm(x) for x in name.split("/")]]
         if len(part) == 1:
             return part[0]
+    k2 = re.sub(r"S$", "", k)  # plural written in English: BAGS -> BAG
+    if k2 != k and (k2 in STORE_UNIT_SYNONYMS or k2 in {c.strip() for c in (N.CODES.get("units") or [])}):
+        return STORE_UNIT_SYNONYMS.get(k2) or k2
+    import difflib  # last resort: the closest name of the list (only when clearly the same word)
+    pool = {N.strip_accents(x).upper().strip(): code for code, name in names.items() for x in name.split("/")}
+    hit = difflib.get_close_matches(k, pool, n=2, cutoff=0.85)
+    if len(hit) == 1 or (len(hit) == 2 and pool[hit[0]] == pool[hit[1]]):
+        return pool[hit[0]]
     return u
 
 
