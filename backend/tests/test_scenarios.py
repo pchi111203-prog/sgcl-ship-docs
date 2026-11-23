@@ -664,3 +664,11 @@ def test_bl_dates_near_labels():
         "Freight payable at   Place and date of issue   (09 SEPTEMBER 2023)"])}]
     r = {f["field_key"]: f["value"] for f in extract.extract_document("BILL_OF_LADING", pg)}
     assert r["shipped_on_board"] == "08/09/2023" and r["date_of_bl"] == "09/09/2023"
+
+
+def test_store_units_from_the_nsw_list():
+    from app.nsw_export import _store_unit
+    expect = {"MT": "TNE", "Lít": "LTR", "Cây": "UNY", "Chai": "UNA", "Kg": "KGM", "Lon": "UNL", "Gói": "PKG", "Cuộn": "ROL",
+              "Cuốn": "UNN", "Tút": "UND", "Cái": "PCE", "Bottles": "UNA"}
+    assert {u: _store_unit(u) for u in expect} == expect
+    assert _store_unit("Thùng") == "Thùng"  # not in the list: as written (noted)

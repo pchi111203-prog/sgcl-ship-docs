@@ -460,13 +460,41 @@ def _effects(plan, data):
 
 
 # ------------------------------------------------ ship's stores in English (SGCL): article, unit code of the NSW list, location
-STORE_UNITS = [  # unit as written -> code of the 'DonVi' list
-    (r"^(MT|MTS|TNE|TON|TONS|TAN|T)$", "TNE"), (r"^(KG|KGS|KGM|KILO\w*)$", "KGM"), (r"^(L|LT|LTR|LTRS|LIT|LITRE|LITER|LITRES|LITERS)$", "LTR"),
-    (r"^(M3|M³|CBM|MTQ|KHOI)$", "MTQ"), (r"^(CAY|CTN|CTNS|CARTON\w*|THUNG|CT)$", "CT"), (r"^(BAO|BAG|BAGS)$", "BAG"),
-    (r"^(CHAI|BOTTLE\w*|BTL|LON|CAN|CANS|CAI|CHIEC|PCE|PCS|PIECE\w*|EA)$", "PCE"), (r"^(BO|SET|SETS)$", "SET"),
-    (r"^(CUON|ROLL\w*|ROL)$", "ROL"), (r"^(DOI|PAIR\w*|PR)$", "PR"), (r"^(GOI|HOP|PKG|PACK\w*|BOX\w*)$", "PKG"),
-    (r"^(THUNG\s*PHUY|PHUY|DRUM\w*|BBL|BARREL\w*)$", "BBL"),
-]
+STORE_UNIT_SYNONYMS = {  # English / abbreviations -> code of the NSW unit list (Declaration list, column K)
+    "MT": "TNE", "MTS": "TNE", "TON": "TNE", "TONS": "TNE", "T": "TNE", "KG": "KGM", "KGS": "KGM", "KILO": "KGM", "KILOGRAM": "KGM",
+    "L": "LTR", "LT": "LTR", "LTRS": "LTR", "LIT": "LTR", "LITRE": "LTR", "LITER": "LTR", "LITRES": "LTR", "LITERS": "LTR",
+    "M3": "MTQ", "M³": "MTQ", "CBM": "MTQ", "KHOI": "MTQ", "G": "GRM", "GR": "GRM", "GRAM": "GRM", "ML": "MLT",
+    "PC": "PCE", "PCS": "PCE", "PIECE": "PCE", "PIECES": "PCE", "EA": "PCE", "BOTTLE": "UNA", "BOTTLES": "UNA", "BTL": "UNA", "BTLS": "UNA",
+    "CAN": "UNL", "CANS": "UNL", "BOX": "UNK", "BOXES": "UNK", "CARTON": "UNK", "CARTONS": "UNK", "CTN": "UNK", "CTNS": "UNK",
+    "PACK": "PKG", "PACKS": "PKG", "PACKET": "PKG", "PACKETS": "PKG", "SETS": "SET", "ROLL": "ROL", "ROLLS": "ROL",
+    "PAIR": "PR", "PAIRS": "PR", "DOZEN": "DZN", "DRUM": None, "DRUMS": None,
+}
+
+
+def _store_unit(u):
+    """Unit code of the NSW list for the unit written in the document - matched on the list's own names
+    ('Chai' -> UNA 'Chai/ Lọ/ Tuýp', 'Cây' -> UNY, 'Lít' -> LTR, 'Tấn' -> TNE); the unit as written when not in the list."""
+    if not u:
+        return u
+    k = N.strip_accents(u).upper().strip(" .")
+    names = N.CODES.get("unit_names") or {}
+    if k in {c.strip() for c in (N.CODES.get("units") or [])}:
+        return k
+    if k in STORE_UNIT_SYNONYMS:
+        return STORE_UNIT_SYNONYMS[k] or u
+    names = {code: name for code, name in names.items() if not re.match(r"\s*\d", name)}  # not '1000 kiện/hộp/bao', '10 chiếc'
+    w = u.strip(" .").upper()
+    for norm in (lambda s: s.upper().strip(), lambda s: N.strip_accents(s).upper().strip()):  # with accents first: Cuộn ≠ Cuốn
+        key = norm(w)
+        exact = [code for code, name in names.items() if norm(name) == key]
+        if len(exact) == 1:
+            return exact[0]
+        part = [code for code, name in names.items() if key in [norm(x) for x in name.split("/")]]
+        if len(part) == 1:
+            return part[0]
+    return u
+
+
 STORE_ARTICLES = [
     (r"DAU\s+NHIEN\s+LIEU|DAU\s+FO\b", "Fuel Oil"), (r"DAU\s+DIESEL|DAU\s+DO\b", "Diesel Oil"), (r"DAU\s+NHON|DAU\s+BOI\s+TRON", "Lubricating Oil"),
     (r"NUOC\s+NGOT", "Fresh Water"), (r"THUOC\s+LA", "Cigarettes"), (r"RUOU", "Spirits"), (r"\bBIA\b", "Beer"), (r"NUOC\s+GIAI\s+KHAT", "Soft drinks"),
@@ -503,13 +531,12 @@ def _english(text, table, whole=False):
     return t[0].upper() + t[1:] if t else text
 
 
-def _store_unit(u):
-    k = N.strip_accents(u or "").upper().strip(" .")
-    code = next((cd for rx, cd in STORE_UNITS if re.match(rx, k)), None)
-    if not code:
-        return u
-    units = N.CODES.get("units") or []
-    return next((x for x in units if x.strip() == code), code)  # exactly as in the NSW list ('CT ' has a trailing space)
+def _unit_checked(plan, sheet, article, raw):
+    code = _store_unit(raw)
+    if raw and code not in {c.strip() for c in (N.CODES.get("units") or [])}:
+        plan.warnings.append(f"{sheet}: '{article}' có đơn vị '{raw}' không có trong danh mục đơn vị NSW - đã ghi nguyên văn, "
+                             "chọn mã đúng trong file Excel (cột Đơn vị có danh sách chọn).")
+    return code
 
 
 def _thousands(q):
@@ -529,20 +556,9 @@ def _stores(plan, data):
             u = m.group(1) if m else u
         unit_raw = _v(rec, "unit") or u
         unit = data.opts.get(f"code:unit:{N.norm_text(unit_raw)}") if unit_raw else None
-        # customs units: cigarettes by the stick (PCE), alcoholic drinks by volume (LTR) - the quantity in brackets
-        # ('12 Cây (2,400 điếu)', '04 Chai (3.0 Lít)') is the one declared
-        art = N.strip_accents(_v(rec, "article") or "").upper()
-        sm = re.search(r"\(\s*([\d.,]+)\s*([^\d\s)]+)\s*\)", _v(rec, "quantity") or "")
-        if sm and not unit:
-            su = N.strip_accents(sm.group(2)).upper()
-            sq = N.parse_number(sm.group(1))[0]
-            if sq is not None and re.match(r"(DIEU|STICKS?|PCS?|PIECES?)$", su):
-                q, unit_raw = sq, "PCE"
-            elif sq is not None and re.match(r"(LIT|LITRES?|LITERS?|LTRS?|L)$", su) and re.search(r"RUOU|SPIRIT|LIQUOR|WINE|VANG|BIA|BEER|WHISK|VODKA|BEVERAGE", art):
-                q, unit_raw = sq, "LTR"
         _row(plan, sheet, {"A": _english(_v(rec, "article"), STORE_ARTICLES, whole=True),
                            "B": _thousands(q) if q is not None else _v(rec, "quantity"),  # 2450 -> 2,450
-                           "C": unit or _store_unit(unit_raw), "D": _english(_v(rec, "location"), STORE_PLACES)},
+                           "C": (unit or _unit_checked(plan, sheet, _v(rec, "article"), unit_raw)), "D": _english(_v(rec, "location"), STORE_PLACES)},
              [rec.get(k) for k in ("article", "quantity", "unit", "location")], data)
 
 

@@ -255,7 +255,7 @@ def load_codes_from_template(path):
         warnings.simplefilter("ignore")
         wb = openpyxl.load_workbook(path, read_only=True)
     ws = wb["Declaration list"]
-    states, ranks, pk, units, ct, pt = {}, {}, {}, set(), [], {}
+    states, ranks, pk, units, ct, pt, unit_names = {}, {}, {}, set(), [], {}, {}
     for r in ws.iter_rows(min_row=3, max_row=262, values_only=True):
         e, f = r[4], r[5]
         if e and f and not str(e).startswith("("):
@@ -263,6 +263,8 @@ def load_codes_from_template(path):
         k = r[10]
         if k and not str(k).startswith("("):
             units.add(str(k).strip())
+            if r[11]:
+                unit_names[str(k).strip()] = str(r[11]).strip()
         if r[8] and isinstance(r[8], (int, float)):
             pt[str(int(r[8]))] = r[9]
         if r[14] and not str(r[14]).startswith("(") and r[14] != "Mã loại kiện":
@@ -272,7 +274,7 @@ def load_codes_from_template(path):
         if r[19] and not str(r[19]).startswith("(") and r[19] != "Code":
             ct.append(str(r[19]))
     wb.close()
-    CODES.update(states=states, ranks=ranks, package_kinds=pk, units=units, container_types=ct, passport_types=pt)
+    CODES.update(states=states, ranks=ranks, package_kinds=pk, units=units, container_types=ct, passport_types=pt, unit_names=unit_names)
     return CODES
 
 
