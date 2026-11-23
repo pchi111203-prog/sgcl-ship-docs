@@ -131,7 +131,7 @@ export default function Export({ user }) {
             <td className="small">{c.sources.map((s, i) => <div key={i}>{s.doc}{s.page ? ` · tr.${s.page}` : ''} {s.status && s.status !== 'CONFIRMED' && <span className="badge b-amber">{s.status === 'DERIVED' ? 'Tính từ dữ liệu' : 'Chưa xác nhận'}</span>}</div>)}</td></tr>)}
         </tbody></table></div>}
         {rd.plan.tables[tab] && <TablePreview t={rd.plan.tables[tab]} />}
-        {tab === 'manual' && <ManualCells opt={opt} form={form} save={saveOpts} />}
+        {tab === 'manual' && <ManualCells opt={opt} form={form} save={saveOpts} cells={rd.plan.cells} />}
       </div>
 
       <div className="card tight">
@@ -161,15 +161,27 @@ function TablePreview({ t }) {
   </tbody></table></div>
 }
 
-function ManualCells({ opt, form, save }) {
-  return <div className="scroll"><table className="t"><thead><tr><th>Sheet</th><th>Ô</th><th>Nội dung</th><th>Nguồn mặc định</th><th>Giá trị nhập tay (ghi đè)</th></tr></thead><tbody>
-    {opt.manual_cells.map((m) => {
+function ManualCells({ opt, form, save, cells }) {
+  const [all, setAll] = useState(false)
+  const filled = Object.fromEntries((cells || []).map((x) => [`${x.sheet}!${x.cell}`, x.value]))
+  // only the cells the documents did not fill (or that staff already typed); the others on request, to correct a value
+  const rows = opt.manual_cells.filter((m) => all || !filled[`${m.sheet}!${m.cell}`] || filled[`${m.sheet}!${m.cell}`] === 'NIL' || form[`cell:${m.sheet}!${m.cell}`])
+  return <div className="scroll">
+    <div className="row" style={{ padding: '8px 18px' }}>
+      <span className="small muted">{all ? 'Đang hiện tất cả các ô.' : `Chỉ hiện ${rows.length} ô chứng từ không ghi (đang trống hoặc NIL) – nhập tay nếu có căn cứ.`}</span>
+      <label className="row small" style={{ marginLeft: 'auto' }}><input type="checkbox" style={{ width: 'auto' }} checked={all} onChange={(e) => setAll(e.target.checked)} /> Hiện cả ô đã lấy từ chứng từ (để sửa)</label>
+    </div>
+    <table className="t"><thead><tr><th>Sheet</th><th>Ô</th><th>Nội dung</th><th>Giá trị hiện tại</th><th>Giá trị nhập tay</th></tr></thead><tbody>
+    {rows.map((m) => {
       const key = `cell:${m.sheet}!${m.cell}`
+      const cur = filled[`${m.sheet}!${m.cell}`]
       return <tr key={key}><td>{m.sheet}</td><td className="mono">{m.cell}</td><td>{m.label}</td>
-        <td className="small muted">{m.spec.startsWith('src') ? 'Từ chứng từ' : m.spec.startsWith('derived') || m.spec.startsWith('docs') ? 'Tính từ dữ liệu' : m.spec.startsWith('voyage') ? 'Ghi chú khi tạo chuyến' : m.spec.startsWith('opt') ? 'Tùy chọn xuất file' : 'Không có trong chứng từ'}</td>
+        <td className="small">{cur ? <span className="mono">{cur}</span> : <span className="faint">(trống – chứng từ không ghi)</span>}</td>
         <td><input className="cell" defaultValue={form[key] || ''} onBlur={(e) => e.target.value !== (form[key] || '') && save({ [key]: e.target.value })} /></td></tr>
-    })}</tbody></table>
-    <p className="small muted" style={{ padding: '0 18px' }}>Chỉ nhập khi có căn cứ (chứng từ gốc, chỉ thị của cảng vụ…). Giá trị nhập tay được ghi vào lịch sử.</p></div>
+    })}
+    {!rows.length && <tr><td colSpan={5} className="empty">Tất cả các ô đã có dữ liệu từ chứng từ – không cần nhập tay.</td></tr>}
+    </tbody></table>
+    <p className="small muted" style={{ padding: '0 18px' }}>Chỉ nhập khi có căn cứ (chứng từ gốc, chỉ thị của cảng vụ…). Giá trị nhập tay thay cho giá trị hiện tại và được ghi vào lịch sử.</p></div>
 }
 
 function UnconfirmedList({ items, onDone }) {
