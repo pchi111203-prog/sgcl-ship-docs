@@ -77,8 +77,9 @@ SHEET_HEADERS = {
     "Crew's Effects Declaration": ([("B3", "Số hồ sơ", "opt:doc_no"), ("B4", "Năm đăng ký", "opt:doc_year"), ("B5", "Chức năng", "opt:doc_function"),
                                     ("B6", "Nơi ký", "opt:sign_place"), ("B7", "Ngày ký", "opt:sign_date"), ("B8", "Người ký", "opt:signer")], []),
     "Ship's store declaration": ([("B3", "Số hồ sơ", "opt:doc_no"), ("B4", "Năm đăng ký", "opt:doc_year"), ("B5", "Chức năng", "opt:doc_function"),
-                                  ("B6", "Số người trên tàu", "manual"), ("B7", "Thời gian ở cảng", "manual"),
-                                  ("B8", "Nơi ký", "opt:sign_place"), ("B9", "Ngày ký", "opt:sign_date"), ("B10", "Người ký", "opt:signer")], []),
+                                  ("B6", "Số người trên tàu", "src:persons_on_board"), ("B7", "Thời gian ở cảng", "src:period_of_stay"),
+                                  ("B8", "Nơi ký", "opt:sign_place"), ("B9", "Ngày ký", "opt:sign_date"), ("B10", "Người ký", "opt:signer")],
+                                 ["SHIP_STORES"]),
     "Passenger list": ([("B3", "Số hồ sơ", "opt:doc_no"), ("B4", "Năm đăng ký", "opt:doc_year"), ("B5", "Chức năng", "opt:doc_function"),
                         ("B6", "Nơi ký", "opt:sign_place"), ("B7", "Ngày ký", "opt:sign_date"), ("B8", "Người ký", "opt:signer")], []),
     "Dangerous goods manifest": ([("B3", "Số hồ sơ", "opt:doc_no"), ("B4", "Năm đăng ký", "opt:doc_year"), ("B5", "Chức năng", "opt:doc_function"),
@@ -174,7 +175,9 @@ class Data:
         d = self.docs.get(f["document_id"])
         return d["doc_type"] if d else "MANUAL"
 
-    def header(self, key, types):
+    def header(self, key, types=None):
+        if types is None:  # any document (declarations first in document order)
+            types = sorted({self.dtype(f) for f in self.fields})
         out = []
         for t in types:
             out += [f for f in self.fields if f["section"] == "vessel" and f["record_key"] == "header" and f["field_key"] == key
@@ -310,6 +313,9 @@ def build_plan(conn, voyage_id):
                     lcode = data.code("locode", lp[0]["value"])[0] if lp else None
                     if lcode:
                         fs = [f for f in fs if lcode in (f["value"] or "").upper().replace(" ", "")] or fs
+                if not fs and key == "persons_on_board":
+                    # not written on the stores declaration: number of crew (+ passengers) declared for the voyage
+                    fs = data.header("crew_count", [GD, NOA, "CREW_LIST"]) or data.header("crew_count")
                 if not fs and key in ROB_ARTICLES:
                     fs = _rob_from_stores(data, key)  # quantity on board from the Ship's Stores Declaration
                 if not fs:

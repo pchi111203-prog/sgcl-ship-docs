@@ -136,6 +136,8 @@ H = {
                     r"ng[aà]y\s+[dđ][eế]n(\s*/\s*r[oờ]i)?"]),
     "etd": ("ETD", [r"\betd\b", r"estimated\s+time\s+of\s+departure", r"departure\s+date"]),
     "master_name": ("Master name", [r"name\s+of\s+master", r"master'?s?\s+name", r"\bmaster\b(?=\s*[:\-])", r"captain(?=\s*[:\-])", r"\bnakhoda\b", r"thuy[eề]n\s+tr[uư][oở]ng"]),
+    "persons_on_board": ("Số người trên tàu", [r"s[oố]\s+ng[uư][oờ]i\s+tr[eê]n\s+t[aà]u", r"number\s+of\s+persons\s+on\s+board"]),
+    "period_of_stay": ("Thời gian ở cảng", [r"th[oờ]i\s+gian\s+[oở]\s+c[aả]ng", r"period\s+of\s+stay"]),
     "crew_count": ("Number of crew", [r"number\s+of\s+crew", r"no\.?\s+of\s+crew", r"crew\s+(number|on\s+board)", r"s[oố]\s+thuy[eề]n\s+vi[eê]n"]),
     "passenger_count": ("Number of passengers", [r"number\s+of\s+passengers", r"no\.?\s+of\s+passengers", r"s[oố]\s+h[aà]nh\s+kh[aá]ch"]),
     "gross_tonnage": ("Gross tonnage", [r"gross\s+tonnage", r"tonnase\s+kotor", r"\bg\.?r\.?t\.?\b", r"\bgt\b(?=\s*[:\-\s]\s*\d)", r"t[oổ]ng\s+dung\s+t[ií]ch"]),
@@ -200,7 +202,8 @@ DOC_HEADER_FIELDS = {
     "PASSENGER_LIST": ["vessel_name", "imo", "call_sign", "flag", "voyage_no", "port_of_arrival", "passenger_count"],
     "DG_MANIFEST": ["vessel_name", "imo", "call_sign", "flag", "voyage_no", "port_of_loading", "port_of_discharge"],
     "CREW_EFFECTS": ["vessel_name", "imo", "call_sign", "flag", "voyage_no"],
-    "SHIP_STORES": ["vessel_name", "imo", "call_sign", "flag", "voyage_no", "port_of_arrival", "crew_count", "passenger_count"],
+    "SHIP_STORES": ["vessel_name", "imo", "call_sign", "flag", "voyage_no", "port_of_arrival", "crew_count", "passenger_count",
+                    "persons_on_board", "period_of_stay"],
     "SHIP_SECURITY": ["vessel_name", "imo", "call_sign", "flag", "voyage_no", "port_of_arrival", "eta", "issc_issuer", "issc_issue_date",
                       "issc_expiry", "security_level", "latitude", "longitude", "purpose_of_call"],
     "HEALTH_DECLARATION": ["vessel_name", "imo", "call_sign", "flag", "voyage_no", "port_of_arrival", "last_port", "next_port", "crew_count",
@@ -537,6 +540,11 @@ def _post_header(k, v):
         v = re.sub(r"^(CAPT\.?|CAPTAIN|MASTER)\s+", "", v.strip(), flags=re.I)
         if not re.match(r"^[A-Za-zÀ-ỹĐđ]", v) or len(re.findall(r"[A-Za-zÀ-ỹĐđ]{2,}", v)) < 2 or re.search(r"[()]", v):
             return None  # signature-block text, not a name
+    if k == "persons_on_board":
+        m = re.search(r"\b(\d{1,4})\b", v)
+        return m.group(1) if m else None
+    if k == "period_of_stay":
+        return v if re.search(r"\d", v) else None
     if k in ("crew_count", "passenger_count"):
         m = re.search(r"\b(\d{1,4})\b", v)
         return m.group(1) if m else None
