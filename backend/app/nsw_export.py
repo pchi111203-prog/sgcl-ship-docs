@@ -91,10 +91,11 @@ SHEET_HEADERS = {
                                        ("B9", "Tên cơ quan cấp ISSC", "src:issc_issuer"), ("B10", "Ngày cấp ISSC", "src:issc_issue_date:date"),
                                        ("B11", "Ngày ISSC hết hạn", "src:issc_expiry:date"), ("B12", "Cấp độ an ninh hiện tại", "src:security_level:level"),
                                        ("B17", "Vĩ độ", "src:latitude"), ("B18", "Kinh độ", "src:longitude"), ("B19", "ETA", "src:eta:date"),
-                                       ("B20", "Nơi ký", "opt:sign_place"), ("B21", "Ngày ký", "opt:sign_date"), ("B22", "Người ký", "opt:signer")], [SEC]),
+                                       ("B20", "Nơi ký", "opt:sign_place"), ("B21", "Ngày ký", "opt:sign_date"), ("B22", "Người ký", "opt:signer")],
+                                      [SEC, NOA, GD]),
 }
 # header block is only written when the matching document exists in the voyage
-ONLY_IF_DOC = {"Declaration For Ship Security": SEC, "Empty Container": "EMPTY_CONTAINER_LIST"}
+ONLY_IF_DOC = {"Empty Container": "EMPTY_CONTAINER_LIST"}  # the security declaration is filled from any document (ISSC, NOA...)
 # Regions with no source document in this system: any leftover value is cleared, structure kept.
 CLEAR_ONLY = {
     "General Declaration": ["A38:C43", "A46:G51"],
@@ -336,6 +337,12 @@ def build_plan(conn, voyage_id):
                     elif tr == "level":
                         m = re.search(r"[123]", v or "")
                         v = m.group(0) if m else v
+                    if tr == "date" and v:
+                        # '18/10/2023' and '18/10/2023 08:00' are the same date: keep the one with the time
+                        dk = str(v)[:10]
+                        if dk not in vals or len(str(v)) > len(str(vals[dk][0])):
+                            vals[dk] = (v, f)
+                        continue
                     vals.setdefault(N.norm_text(v), (v, f))
                 if len(vals) > 1 and key in OPERATION_KEYS:
                     # port-call facts written in several documents (plan, notice, SOF): the first source in priority order is used
@@ -365,6 +372,7 @@ def build_plan(conn, voyage_id):
     _dg_transporter_note(plan)
     _empty_containers(plan, data)
     _port_calls(plan, data)
+    _security(plan, data)
     # port-call block of GD / NOA: what no document states is written NIL (SGCL rule)
     for sheet, (r0, r1) in NIL_BLOCKS.items():
         for r in range(r0, r1 + 1):
@@ -862,6 +870,28 @@ def _cargo_groups(plan, data):
 
 def _date(v):
     return (N.parse_date(v)[0] or v) if v else None
+
+
+def _security(plan, data):
+    """Declaration for ship security (SGCL practice): purpose of call from the cargo discharged here, ISSC 'Yes' when
+    the certificate is in the documents, security level 1 unless written otherwise, no additional measures."""
+    sheet, o = "Declaration For Ship Security", data.opts
+    if not data.fields:
+        return  # no documents yet: nothing to declare
+    def put(ref, v, label, src):
+        if v not in (None, "") and (sheet, ref) not in plan.cells and not o.get(f"cell:{sheet}!{ref}"):
+            _set(plan, sheet, ref, v, label, [{"doc": src, "status": "DERIVED"}], "derived")
+            plan.empty = [e for e in plan.empty if not e.startswith(f"{sheet}!{ref} ")]
+    recs = data.records("cargo", ["CARGO_MANIFEST", "MANUAL"]) or data.records("cargo", ["BILL_OF_LADING"])
+    arrival = plan.cells.get(("General Declaration", "B7"))
+    if recs and any(not arrival or not _v(r, "pod") or data.code("locode", _v(r, "pod"))[0] == arrival for r in recs):
+        put("B6", "C03", "Mục đích đến cảng", "Hàng dỡ tại cảng đến (Manifest/B/L) → C03 dỡ hàng")
+        put("B7", "Đến để dỡ hàng", "Chi tiết mục đích đến cảng", "Hàng dỡ tại cảng đến")
+    if any((sheet, r) in plan.cells for r in ("B9", "B10", "B11")):
+        put("B8", "Yes", "Tàu có GCN ISSC", "Có Giấy chứng nhận ISSC trong bộ chứng từ")
+    put("B12", "1", "Cấp độ an ninh hiện tại", "Không chứng từ nào ghi cấp độ khác → cấp độ 1")
+    put("B13", "No", "Biện pháp an ninh bổ sung", "Quy ước SGCL")
+    put("B15", "No", "Duy trì biện pháp an ninh", "Quy ước SGCL")
 
 
 def _pkg_count(v):

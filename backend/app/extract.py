@@ -983,7 +983,8 @@ def normalise_field(key, value):
     return re.sub(r"\s+", " ", v)
 
 
-OPERATION_KEYS = ["berth", "port_clearance_no", "tug", "waste_request", "pilot_on_board", "berthing_time", "remarks"]
+OPERATION_KEYS = ["berth", "port_clearance_no", "tug", "waste_request", "pilot_on_board", "berthing_time", "remarks",
+                  "issc_issuer", "issc_issue_date", "issc_expiry", "security_level", "latitude", "longitude"]
 _MONTHS = {m: i for i, m in enumerate(["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], start=1)}
 
 
@@ -1067,6 +1068,41 @@ def extract_operational(pages):
                 tm = re.search(r"((?:\d+|ONE|TWO|THREE)\s+TUGS?[^.;]*|TUGS?\s*[:\-][^.;]*)", desc)
                 if tm:
                     found["tug"] = {"value": tm.group(1).strip().title(), "page_no": p["page_no"], "confidence": 0.75, "method": meth(p)}
+    # International Ship Security Certificate (ISSC): issuing authority, date of issue, valid until
+    for p in pages:
+        t = p["text"]
+        up = N.strip_accents(t).upper()
+        m = re.search(r"INTERNATIONAL\s+SHIP\s+SECURITY\s+CERTIFICATE|GIAY\s+CHUNG\s+NHAN\s+QUOC\s+TE\s+VE\s+AN\s+NINH\s+TAU\s+BIEN|\bISSC\b", up)
+        if not m or "issc_issue_date" in found:
+            continue
+        body, ubody = t[m.start():m.start() + 4000], up[m.start():m.start() + 4000]
+        date_rx = r"(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4}|\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{4})"
+        dm = re.search(r"(?:DATE\s+OF\s+ISSUE|NGAY\s+CAP)[^0-9\n]{0,20}" + date_rx, ubody)
+        em = re.search(r"(?:VALID\s+UNTIL|CO\s+HIEU\s+LUC\s+DEN|DATE\s+OF\s+EXPIRY|EXPIR\w*|HET\s+HAN)[^0-9\n]{0,25}" + date_rx, ubody)
+        conf = 0.9 if p["method"] != "ocr" else 0.7
+        if dm:
+            found["issc_issue_date"] = {"value": dm.group(1), "page_no": p["page_no"], "confidence": conf, "method": meth(p)}
+        if em:
+            found["issc_expiry"] = {"value": em.group(1), "page_no": p["page_no"], "confidence": conf, "method": meth(p)}
+        if re.search(r"VIETNAM\s+REGISTER|DANG\s+KIEM\s+VIET\s*NAM", ubody):
+            found["issc_issuer"] = {"value": "VR", "page_no": p["page_no"], "confidence": conf, "method": meth(p)}
+        else:
+            im = re.search(r"\bBY\s+([A-Z][A-Z .,&'\-]{3,60}?)(?:\s*[\n(]|$)", body.upper())
+            if im:
+                found["issc_issuer"] = {"value": im.group(1).strip(" ,."), "page_no": p["page_no"], "confidence": conf * 0.9, "method": meth(p)}
+    # position (latitude / longitude) written with a label: '10°20.5'N  107°05.3'E', 'Lat: 12-206.676N'
+    for p in pages:
+        if "latitude" in found:
+            break
+        for l in p["text"].splitlines():
+            if not re.search(r"LAT|LONG|V[IĨ]\s+[DĐ][OỘ]|KINH\s+[DĐ][OỘ]|T[OỌ]A\s+[DĐ][OỘ]|POSITION", N.strip_accents(l).upper()):
+                continue
+            la = re.search(r"(\d{1,2}\s*[°\-º]\s*\d{1,2}(?:[.,]\d+)?\s*['’′]?\s*[NS])\b", l)
+            lo = re.search(r"(\d{1,3}\s*[°\-º]\s*\d{1,2}(?:[.,]\d+)?\s*['’′]?\s*[EW])\b", l)
+            if la and lo:
+                found["latitude"] = {"value": la.group(1).replace(" ", ""), "page_no": p["page_no"], "confidence": 0.8, "method": meth(p)}
+                found["longitude"] = {"value": lo.group(1).replace(" ", ""), "page_no": p["page_no"], "confidence": 0.8, "method": meth(p)}
+                break
     # position of the ship on arrival: the anchorage when it anchors first (SGCL: 'NEO VŨNG TÀU'), else the berth
     pos = found.pop("anchorage", None) or found.get("berth") or found.get("berth_plan")
     found.pop("berth_plan", None)
