@@ -134,6 +134,27 @@ class Sheet:
         self.dirty = True
         return True
 
+    def restyle(self, ref, bold=None, wrap=None):
+        c = self.cell(ref)
+        if c is not None:
+            c.set("s", str(self.book.derive_xf(c.get("s", "0"), bold=bold, wrap=wrap)))
+            self.dirty = True
+
+    def set_height(self, rn, points):
+        row = self._row(rn)
+        row.set("ht", f"{points:.2f}")
+        row.set("customHeight", "1")
+        self.dirty = True
+
+    def col_width(self, col):
+        """Width (characters) of a column from <cols>, default 8.43."""
+        n = col2num(col)
+        cols = self.tree.find(Q("cols"))
+        for el in (cols if cols is not None else []):
+            if int(el.get("min")) <= n <= int(el.get("max")):
+                return float(el.get("width", "8.43"))
+        return 8.43
+
     def wipe(self, ref):
         """Remove value AND formula (used only when building a clean template from a filled workbook)."""
         c = self.cell(ref)
@@ -311,6 +332,46 @@ class Book:
                 self.shared.append("".join(t.text or "" for t in si.iter(Q("t"))))
         self._sheets = {}
 
+    def _styles(self):
+        if not hasattr(self, "_st"):
+            self._st = etree.fromstring(self.parts["xl/styles.xml"])
+            self._xf_cache = {}
+        return self._st
+
+    def derive_xf(self, idx, bold=None, wrap=None):
+        """Index of a cell format equal to format `idx` but with bold / wrap text changed (appended to styles.xml,
+        existing formats untouched)."""
+        key = (idx, bold, wrap)
+        st = self._styles()
+        if key in self._xf_cache:
+            return self._xf_cache[key]
+        xfs = st.find(Q("cellXfs"))
+        xf = copy.deepcopy(xfs.findall(Q("xf"))[int(idx or 0)])
+        if bold is not None:
+            fonts = st.find(Q("fonts"))
+            font = copy.deepcopy(fonts.findall(Q("font"))[int(xf.get("fontId", "0"))])
+            for b in font.findall(Q("b")):
+                font.remove(b)
+            if bold:
+                font.insert(0, etree.Element(Q("b")))
+            fonts.append(font)
+            fonts.set("count", str(len(fonts.findall(Q("font")))))
+            xf.set("fontId", str(len(fonts.findall(Q("font"))) - 1))
+            xf.set("applyFont", "1")
+        if wrap is not None:
+            al = xf.find(Q("alignment"))
+            if al is None:
+                al = etree.SubElement(xf, Q("alignment"))
+            al.set("wrapText", "1" if wrap else "0")
+            if wrap:
+                al.set("vertical", al.get("vertical", "top"))
+            xf.set("applyAlignment", "1")
+        xfs.append(xf)
+        xfs.set("count", str(len(xfs.findall(Q("xf")))))
+        self._xf_cache[key] = len(xfs.findall(Q("xf"))) - 1
+        self.styles_dirty = True
+        return self._xf_cache[key]
+
     def sheet(self, name):
         if name not in self._sheets:
             p = self.sheet_paths[name]
@@ -378,6 +439,8 @@ class Book:
         for s in self._sheets.values():
             if s.dirty:
                 out[s.path] = s.xml()
+        if getattr(self, "styles_dirty", False):
+            out["xl/styles.xml"] = etree.tostring(self._st, xml_declaration=True, encoding="UTF-8", standalone=True)
         with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as z:
             for n in self.order:
                 if n in drop:

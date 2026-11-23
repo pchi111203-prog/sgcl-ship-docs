@@ -18,6 +18,7 @@ from . import normalize as N
 from . import crosscheck
 from .crosscheck import _locode
 from .extract import OPERATION_KEYS
+_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 from .xlsxpatch import Book, col2num, num2col, split_ref
 
 SIGNERS = ["Thuyền trưởng/Master", "Đại lý/ShipAgency", "Chủ tàu/ShipOwner"]
@@ -870,6 +871,23 @@ def write_workbook(template, plan, out_path):
                         continue
                     sh.set(f"{col}{r}", v)
                     written[(sheet, f"{col}{r}")] = str(v)
+    # Crew's Effects: family name in normal weight, long effects wrapped on a taller row (other rows unchanged)
+    eff_rows = plan.tables.get("Crew's Effects Declaration", [])
+    if eff_rows and "Crew's Effects Declaration" in book.sheet_names:
+        sh = book.sheet("Crew's Effects Declaration")
+        first = TABLES["Crew's Effects Declaration"]["first"]
+        chars = max(10.0, sh.col_width("D") * 1.1)
+        for i, row in enumerate(eff_rows):
+            r = first + i
+            ca, cb = sh.cell(f"A{r}"), sh.cell(f"B{r}")
+            if ca is not None and cb is not None and cb.get("s"):
+                ca.set("s", cb.get("s"))  # family name written like the given name (template: small bold type)
+                sh.dirty = True
+            txt = str(row.get("D") or "")
+            if len(txt) > chars:
+                sh.restyle(f"D{r}", wrap=True)
+                lines = -(-len(txt) // int(chars))
+                sh.set_height(r, 15.0 * lines + 2)
     blocks = plan.tables.get(HOUSE_SHEET, [])
     if blocks and HOUSE_SHEET in book.sheet_names:
         sh = book.sheet(HOUSE_SHEET)
@@ -969,7 +987,23 @@ def verify(template, out_path, written):
     odv = sum(ob.parts[p].count(b"<dataValidation ") for p in ob.parts if p.startswith("xl/worksheets/sheet"))
     add("Giữ danh sách chọn (Data Validation, kể cả x14)", tx == ox and tdv == odv, f"x14: {ox}/{tx}, thường: {odv}/{tdv}")
     tcm = sorted(p for p in tb.parts if p.startswith("xl/comments") or p.startswith("xl/externalLinks") or p.startswith("xl/styles"))
-    add("Giữ styles, ghi chú (comments), liên kết ngoài", tcm == sorted(p for p in ob.parts if p in tcm) and all(ob.parts[p] == tb.parts[p] for p in tcm))
+    def same_part(p):
+        if ob.parts[p] == tb.parts[p]:
+            return True
+        if not p.startswith("xl/styles"):
+            return False
+        # formats may only be ADDED (normal-weight name, wrapped text): every template format must be unchanged
+        from lxml import etree as _et
+        a, b = _et.fromstring(tb.parts[p]), _et.fromstring(ob.parts[p])
+        for sec in ("numFmts", "fonts", "fills", "borders", "cellStyleXfs", "cellXfs", "cellStyles", "dxfs"):
+            sa, sb = a.find("{%s}%s" % (_NS, sec)), b.find("{%s}%s" % (_NS, sec))
+            if sa is None:
+                continue
+            ca, cb = list(sa), list(sb) if sb is not None else []
+            if len(cb) < len(ca) or any(_et.tostring(x) != _et.tostring(y) for x, y in zip(ca, cb)):
+                return False
+        return True
+    add("Giữ styles, ghi chú (comments), liên kết ngoài", tcm == sorted(p for p in ob.parts if p in tcm) and all(same_part(p) for p in tcm))
     add("Sheet danh mục 'Declaration list' không bị thay đổi",
         ob.parts[ob.sheet_paths["Declaration list"]] == tb.parts[tb.sheet_paths["Declaration list"]])
     # 5. real spreadsheet application
