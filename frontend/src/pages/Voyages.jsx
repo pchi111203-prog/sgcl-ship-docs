@@ -3,6 +3,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
 import { Badge, Progress, Spinner, useToast, VOYAGE_STATUS } from '../components'
 
+const STICKY = { width: 150, minWidth: 150, position: 'sticky', right: 0, background: 'var(--surface)', boxShadow: '-6px 0 6px -6px rgba(0,0,0,.25)', zIndex: 1 };
+
 export function VoyageList({ user }) {
   const [list, setList] = useState(null)
   const [q, setQ] = useState('')
@@ -27,13 +29,13 @@ export function VoyageList({ user }) {
         <div><h1>Quản lý chuyến tàu</h1><p>Mỗi chuyến tàu là một hồ sơ độc lập theo Mã chuyến (Voyage ID). Hồ sơ mới tạo là <b>hồ sơ nháp</b> cho tới khi tải chứng từ. Hệ thống cảnh báo khi trùng IMO/tên tàu + số chuyến + cảng đến + ETA.</p></div>
         <Link to="/voyages/new" className="btn primary">+ Tạo chuyến tàu mới</Link>
       </div>
-      <div className="card tight">
+      <div className="card tight" style={{ overflowX: 'auto' }}>
         <div className="card-head">
           <input placeholder="Tìm theo mã chuyến, tên tàu, IMO, voyage no., call sign…" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 420 }} />
           <label className="row small"><input type="checkbox" checked={showSample} onChange={(e) => setShowSample(e.target.checked)} style={{ width: 'auto' }} /> Hiện chuyến dữ liệu mẫu</label>
         </div>
         <table className="t">
-          <thead><tr><th>Mã chuyến</th><th>Tên tàu</th><th>IMO</th><th>Call sign</th><th>Voyage</th><th>Cảng đến</th><th>ETA</th><th>Chứng từ</th><th>Trạng thái</th><th style={{ width: 130 }}>Tiến độ</th><th /></tr></thead>
+          <thead><tr><th>Mã chuyến</th><th>Tên tàu</th><th>IMO</th><th>Call sign</th><th>Voyage</th><th>Cảng đến</th><th>ETA</th><th>Chứng từ</th><th>Trạng thái</th><th style={{ width: 90 }}>Tiến độ</th><th style={STICKY} /></tr></thead>
           <tbody>
             {rows.map((v) => (
               <tr key={v.id}>
@@ -43,11 +45,13 @@ export function VoyageList({ user }) {
                 <td className="small">{v.port_of_arrival || '—'}</td><td className="small">{v.eta || '—'}</td>
                 <td>{v.progress.documents}</td><td><Badge map={VOYAGE_STATUS} value={v.progress.status} /></td>
                 <td title={v.progress.steps.filter((s) => !s.done).map((s) => `${s.label}: ${s.why}`).join('\n') || 'Hoàn thành'}><Progress value={v.progress.progress} /></td>
-                <td className="right" style={{ whiteSpace: 'nowrap' }}>
+                <td style={STICKY}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-end' }}>
                   <button className="btn sm" onClick={() => nav(`/voyages/${v.id}/edit`)}>Sửa</button>{' '}
                   <button className="btn sm primary" onClick={() => nav(`/voyages/${v.id}/documents`)}>Mở</button>{' '}
                   <button className="btn sm" onClick={() => archive(v)} title="Chuyển vào mục Lưu trữ">Lưu trữ</button>{' '}
                   {user.role === 'supervisor' && <button className="btn sm danger" onClick={() => del(v)} title="Chuyển vào Thùng rác (khôi phục được)">Xóa</button>}
+                  </div>
                 </td>
               </tr>
             ))}

@@ -119,31 +119,37 @@ export function VoyageHeader({ voyage, current }) {
   )
 }
 
-/* Pages in the sidebar that need a voyage: redirect to last opened voyage or ask to choose. */
+/* Pages in the sidebar that need a voyage: continue the voyage being worked on; a finished voyage (Excel exported)
+   is not reopened here - the page stays empty and says to create / open a voyage. */
+const STEP_NAMES = { documents: 'xử lý chứng từ', crosscheck: 'đối chiếu dữ liệu', review: 'kiểm tra và xác nhận', export: 'xuất file Excel NSW' }
 export function VoyageGate({ target }) {
   const nav = useNavigate()
   const loc = useLocation()
-  const [list, setList] = useState(null)
+  const [ready, setReady] = useState(false)
   useEffect(() => {
     let last = null
     try { last = localStorage.getItem('sgcl.voyage') } catch { /* */ }
     api('/api/voyages').then((vs) => {
-      if (last && vs.some((v) => String(v.id) === last) && !loc.state?.choose) nav(`/voyages/${last}/${target}`, { replace: true })
-      else setList(vs)
+      const v = vs.find((x) => String(x.id) === last)
+      if (v && v.progress.status !== 'EXPORTED' && !loc.state?.choose) nav(`/voyages/${last}/${target}`, { replace: true })
+      else {
+        if (v) { try { localStorage.removeItem('sgcl.voyage') } catch { /* */ } }  // finished voyage: its work session is over
+        setReady(true)
+      }
     })
   }, [target])
-  if (!list) return <div className="empty"><Spinner /></div>
+  if (!ready) return <div className="empty"><Spinner /></div>
   return (
-    <div className="card">
-      <h2>Chọn chuyến tàu để làm việc</h2>
-      {!list.length && <div className="empty">Chưa có chuyến tàu. <Link to="/voyages/new">Tạo chuyến tàu mới</Link></div>}
-      <table className="t"><tbody>
-        {list.map((v) => (
-          <tr key={v.id}><td className="mono">{v.voyage_code}</td><td><b>{v.vessel_name || '—'}</b> {v.is_sample ? <span className="badge b-sample">MẪU</span> : null}</td>
-            <td>{v.voyage_no}</td><td><Badge map={VOYAGE_STATUS} value={v.progress.status} /></td>
-            <td className="right"><button className="btn sm primary" onClick={() => nav(`/voyages/${v.id}/${target}`)}>Mở</button></td></tr>
-        ))}
-      </tbody></table>
+    <div className="card" style={{ textAlign: 'center', padding: '48px 24px' }}>
+      <h2 style={{ marginTop: 0 }}>Chưa có chuyến tàu đang xử lý</h2>
+      <p className="muted" style={{ maxWidth: 620, margin: '8px auto 20px' }}>
+        Bấm <b>Tạo chuyến tàu mới</b> để bắt đầu {STEP_NAMES[target] || 'xử lý'} cho chuyến tàu mới.
+        Muốn xem, chỉnh sửa hoặc bổ sung một chuyến tàu đã làm, vào <b>Quản lý chuyến tàu</b> và bấm <b>Mở</b>.
+      </p>
+      <div className="row" style={{ justifyContent: 'center' }}>
+        <Link className="btn primary" to="/voyages/new">+ Tạo chuyến tàu mới</Link>
+        <Link className="btn" to="/voyages">Quản lý chuyến tàu</Link>
+      </div>
     </div>
   )
 }
