@@ -673,3 +673,15 @@ def test_store_units_from_the_nsw_list():
     assert {u: _store_unit(u) for u in expect} == expect
     assert _store_unit("Thùng") == "UNK" and _store_unit("Phuy") == "BBL"  # closest unit of the list
     assert _store_unit("Xyz") == "Xyz"  # nothing close: as written (noted)
+
+
+def test_voyage_memory_port_calls():
+    from app import extract
+    pg = {"page_no": 1, "method": "ocr", "confidence": 0.7, "tables": [], "words": {}, "text": "VOYAGE MEMORY\nnoise", "alt_texts": ["\n".join([
+        "VOYAGE MEMORY", "No   PORT   ARRIVAL DATE OF   DEPARTURE DATE OF   CARGO'S NAME",
+        "——   JAKARTA-INDONESIA   22/05/2025   25/05/2023   BARITE IN BAG",
+        "SAMPIT-INDONESIA   28/05/2023   02/06/2023   PKE",
+        "10   PONTIANAK-INDONESIA   08/08/2023   15/08/2023   PKE IN BULK"])]}
+    rows = [{k: v["value"] for k, v in r["fields"].items()} for r in extract.extract_voyage_memory([pg])]
+    assert [r["port_name"] for r in rows] == ["JAKARTA-INDONESIA", "SAMPIT-INDONESIA", "PONTIANAK-INDONESIA"]
+    assert rows[0]["arrival"] == "22/05/2023" and rows[2]["departure"] == "15/08/2023"  # OCR year 2025 set to 2023

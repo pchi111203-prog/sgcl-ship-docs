@@ -326,6 +326,7 @@ DOC_TABLES = {
     "EMPTY_CONTAINER_LIST": ["empty_container"], "SHIP_SECURITY": ["port_calls"],
 }
 FIELD_LABELS = {
+    "port_name": "Cảng / Port", "arrival": "Ngày đến / Arrival", "departure": "Ngày đi / Departure", "cargo_name": "Hàng / Cargo",
     "seq": "STT", "family_name": "Họ / Family name", "given_name": "Tên / Given name", "full_name": "Họ tên / Full name",
     "rank": "Chức danh / Rank", "nationality": "Quốc tịch / Nationality", "dob": "Ngày sinh / DOB", "pob": "Nơi sinh / POB",
     "gender": "Giới tính / Gender", "passport_no": "Số hộ chiếu / Passport No.", "passport_expiry": "Hạn hộ chiếu / Expiry",
@@ -1114,11 +1115,58 @@ def extract_operational(pages):
     return found
 
 
+_PORT_CALL_LINE = re.compile(r"([A-Z][A-Z .'’]{2,}?(?:\s*-\s*[A-Z][A-Z .]{2,}?)?)\s{2,}(\d{1,2}/\d{1,2}/\d{4})\s+(\d{1,2}/\d{1,2}/\d{4})(?:\s{2,}(.+))?$")
+
+
+def _port_call_rows(text):
+    rows = []
+    for l in text.splitlines():
+        m = _PORT_CALL_LINE.search(l.strip())
+        if m and len(re.sub(r"[^A-Z]", "", m.group(1))) >= 4:
+            rows.append([m.group(1).strip(" -"), m.group(2), m.group(3), (m.group(4) or "").strip(" -—")])
+    return rows
+
+
+def extract_voyage_memory(pages):
+    """Ports called before this voyage (Voyage Memory / last 10 ports): port, arrival, departure, cargo - from the
+    reading of the page that gives the most rows; a year misread by the OCR (2025 / 2026 among 2023) is set to the
+    year of the other dates when that keeps arrival <= departure."""
+    recs = []
+    for p in pages:
+        up = N.strip_accents(p["text"] + " ".join(p.get("alt_texts") or [])).upper()
+        if not re.search(r"VOYAGE\s+MEMO|LAST\s+(10|TEN)\s+PORTS|PORTS?\s+OF\s+CALL|CAC\s+CANG\s+(DA\s+)?GHE", up):
+            continue
+        rows = max((_port_call_rows(t) for t in [p["text"]] + list(p.get("alt_texts") or [])), key=len)
+        if len(rows) < 2:
+            continue
+        years = sorted(int(d[-4:]) for r in rows for d in r[1:3])
+        med = years[len(years) // 2]
+        for r in rows:
+            fixed = False
+            for i in (1, 2):
+                y = int(r[i][-4:])
+                if abs(y - med) > 1:
+                    cand = r[i][:-4] + str(med)
+                    a, b = (cand, r[2]) if i == 1 else (r[1], cand)
+                    da, db = N.parse_date(a)[0], N.parse_date(b)[0]
+                    if da and db and da[6:10] + da[3:5] + da[:2] <= db[6:10] + db[3:5] + db[:2]:
+                        r[i], fixed = cand, True
+            conf = (0.6 if fixed else 0.8) if p["method"] == "ocr" else 0.9
+            meth = p["method"] + "-voyage-memory" + ("-year-fixed" if fixed else "")
+            f = {k: {"value": v, "page_no": p["page_no"], "confidence": conf, "method": meth}
+                 for k, v in zip(("port_name", "arrival", "departure", "cargo_name"), r) if v}
+            recs.append({"fields": f, "page_no": p["page_no"]})
+    return recs
+
+
 def extract_document(doc_type, pages):
     """Return list of field dicts ready to be stored."""
     out = []
     hdr_keys = DOC_HEADER_FIELDS.get(doc_type, DOC_HEADER_FIELDS["OTHER"])
-    hdr = extract_header(pages, list(dict.fromkeys(hdr_keys + OPERATION_KEYS)))
+    keys = hdr_keys + OPERATION_KEYS
+    if doc_type != "SHIP_SECURITY":  # 'issued by ...' on other papers is not the ISSC: the certificate is read by extract_operational
+        keys = [k for k in keys if not k.startswith("issc_")]
+    hdr = extract_header(pages, list(dict.fromkeys(keys)))
     for k, v in extract_operational(pages).items():
         hdr.setdefault(k, v)
     for k, d in hdr.items():
@@ -1163,6 +1211,10 @@ def extract_document(doc_type, pages):
         for i, r in enumerate(recs, start=1):
             for k, d in r["fields"].items():
                 out.append(dict(section=section, record_key=f"{prefix}:{i}", record_index=i, field_key=k, **d))
+    if not any(f["section"] == "port_calls" for f in out):
+        for i, r in enumerate(extract_voyage_memory(pages), start=1):
+            for k, d in r["fields"].items():
+                out.append(dict(section="port_calls", record_key=f"port:{i}", record_index=i, field_key=k, **d))
     for f in out:
         f["original_value"] = f.pop("value")
         f["value"] = normalise_field(f["field_key"], f["original_value"])

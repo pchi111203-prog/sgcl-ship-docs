@@ -889,7 +889,10 @@ def _security(plan, data):
         put("B7", "Đến để dỡ hàng", "Chi tiết mục đích đến cảng", "Hàng dỡ tại cảng đến")
     if any((sheet, r) in plan.cells for r in ("B9", "B10", "B11")):
         put("B8", "Yes", "Tàu có GCN ISSC", "Có Giấy chứng nhận ISSC trong bộ chứng từ")
-    put("B12", "1", "Cấp độ an ninh hiện tại", "Không chứng từ nào ghi cấp độ khác → cấp độ 1")
+    if (sheet, "B12") not in plan.cells and not o.get(f"cell:{sheet}!B12"):
+        put("B12", "1", "Cấp độ an ninh hiện tại", "Không chứng từ nào ghi cấp độ an ninh → tạm ghi cấp độ 1")
+        plan.warnings.append(f"{sheet}!B12: chứng từ không ghi cấp độ an ninh hiện tại của tàu - đang ghi cấp độ 1, "
+                             "cần kiểm tra và xác nhận (có ISSC không có nghĩa là cấp độ 1).")
     put("B13", "No", "Biện pháp an ninh bổ sung", "Quy ước SGCL")
     put("B15", "No", "Duy trì biện pháp an ninh", "Quy ước SGCL")
 
@@ -1186,9 +1189,18 @@ def _port_calls(plan, data):
     if len(recs) > 10:
         plan.warnings.append(f"Ship Security: chứng từ có {len(recs)} cảng ghé, mẫu NSW chỉ có 10 dòng → ghi 10 dòng cuối danh sách, kiểm tra thứ tự.")
         recs = recs[-10:]
+    no_level = 0
     for rec in recs:
         lvl = re.search(r"[123]", _v(rec, "security_level") or "")
-        code = _coded(plan, data, sheet, "locode", _v(rec, "port_code") or _v(rec, "port_name"), "mã cảng")
-        _row(plan, sheet, {"A": code, "B": _v(rec, "port_name"), "C": _v(rec, "arrival"), "D": _v(rec, "departure"),
-                           "E": lvl.group(0) if lvl else None},
+        raw = _v(rec, "port_code") or _v(rec, "port_name")
+        code, ok = data.code("locode", raw)
+        if not ok:
+            code = "ZZZZZ"  # port without a known UN/LOCODE (SGCL practice)
+        no_level += 0 if lvl else 1
+        _row(plan, sheet, {"A": code, "B": _v(rec, "port_name"), "C": _date(_v(rec, "arrival")), "D": _date(_v(rec, "departure")),
+                           "E": lvl.group(0) if lvl else "1"},
              [rec.get(k) for k in ("port_code", "port_name", "arrival", "departure", "security_level")], data)
+    if no_level:
+        plan.warnings.append(f"{sheet}: {no_level} cảng ghé không ghi cấp độ an ninh - đang ghi cấp độ 1, cần kiểm tra và xác nhận.")
+    if any("year-fixed" in ((r.get("arrival") or {}).get("method", "") + (r.get("departure") or {}).get("method", "")) for r in recs):
+        plan.warnings.append(f"{sheet}: có ngày cảng ghé bị bản scan đọc sai năm, hệ thống đã sửa theo các ngày còn lại - đối chiếu lại Voyage Memory.")
