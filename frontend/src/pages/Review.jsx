@@ -11,6 +11,7 @@ const SECTIONS = [
   { key: 'dg', label: 'Hàng nguy hiểm', cols: ['bl_no', 'container_no', 'seal_no', 'un_no', 'imdg_class', 'proper_shipping_name', 'packing_group', 'packages', 'gross_weight', 'stowage'] },
   { key: 'store', label: 'Dự trữ tàu', cols: ['article', 'quantity', 'unit', 'location'] },
   { key: 'effects', label: 'Hành lý thuyền viên', cols: ['full_name', 'family_name', 'given_name', 'rank', 'effects'] },
+  { key: 'port_calls', label: 'Cảng ghé (an ninh)', cols: ['port_name', 'port_code', 'arrival', 'departure', 'security_level', 'cargo_name'] },
 ]
 const BAD = ['MISMATCH', 'DUPLICATE', 'WRONG_VOYAGE']
 

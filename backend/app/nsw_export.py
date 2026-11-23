@@ -1143,6 +1143,9 @@ def readiness(conn, voyage_id):
         blockers.append(f"Còn {len(unconf)} trường dữ liệu sẽ xuất ra Excel chưa được nhân viên xác nhận.")
     return {"ready": not blockers, "blockers": blockers, "warnings": plan.warnings, "empty": plan.empty,
             "unconfirmed_count": len(unconf), "plan": plan_view(plan),
+            "unconfirmed": [{"id": f["id"], "label": f["field_label"] or f["field_key"], "value": f["value"], "section": f["section"],
+                             "doc": (data.docs.get(f["document_id"]) or {}).get("original_name", "Nhập tay"), "page": f["page_no"]}
+                            for f in unconf[:300]],
             "unmapped_fields": sorted(({"field": k, "label": v["label"], "count": v["count"], "docs": sorted(v["docs"])[:5]}
                                        for k, v in unmapped.items()), key=lambda x: x["label"])}
 

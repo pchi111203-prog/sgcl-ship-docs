@@ -49,7 +49,8 @@ export default function Export({ user }) {
         <div className="card">
           <h2>Kiểm tra điều kiện xuất file</h2>
           {rd.ready ? <div className="alert green">Đủ điều kiện xuất file: không còn lỗi nghiêm trọng, toàn bộ dữ liệu xuất ra đã được xác nhận.</div>
-            : <div className="alert red"><b>Chưa đủ điều kiện xuất file:</b><ul>{rd.blockers.slice(0, 12).map((b, i) => <li key={i}>{b}</li>)}{rd.blockers.length > 12 && <li>… và {rd.blockers.length - 12} mục khác</li>}</ul></div>}
+            : <div className="alert red"><b>Chưa đủ điều kiện xuất file:</b><ul>{rd.blockers.slice(0, 12).map((b, i) => <li key={i}>{b}</li>)}{rd.blockers.length > 12 && <li>… và {rd.blockers.length - 12} mục khác</li>}</ul>
+              {rd.unconfirmed?.length > 0 && <UnconfirmedList items={rd.unconfirmed} onDone={load} />}</div>}
           {rd.warnings.length > 0 && <div className="alert amber"><b>Lưu ý ({rd.warnings.length}):</b><ul>{rd.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul></div>}
           <details><summary className="small" style={{ cursor: 'pointer' }}>{rd.empty.length} ô trong mẫu NSW chưa có dữ liệu (để trống, không tự điền)</summary>
             <ul className="small muted">{rd.empty.map((x, i) => <li key={i}>{x}</li>)}</ul></details>
@@ -169,6 +170,24 @@ function ManualCells({ opt, form, save }) {
         <td><input className="cell" defaultValue={form[key] || ''} onBlur={(e) => e.target.value !== (form[key] || '') && save({ [key]: e.target.value })} /></td></tr>
     })}</tbody></table>
     <p className="small muted" style={{ padding: '0 18px' }}>Chỉ nhập khi có căn cứ (chứng từ gốc, chỉ thị của cảng vụ…). Giá trị nhập tay được ghi vào lịch sử.</p></div>
+}
+
+function UnconfirmedList({ items, onDone }) {
+  const [busy, setBusy] = useState(false)
+  const toast = useToast()
+  const confirm = async () => {
+    setBusy(true)
+    try { await api('/api/fields/confirm', { method: 'POST', body: { ids: items.map((x) => x.id) } }); toast(`Đã xác nhận ${items.length} trường`); onDone() }
+    catch (e) { toast(e.message, 'err') } finally { setBusy(false) }
+  }
+  return (
+    <details style={{ marginTop: 8 }}><summary style={{ cursor: 'pointer' }}><b>Xem {items.length} trường chưa xác nhận</b></summary>
+      <div className="scroll" style={{ maxHeight: 320, marginTop: 6 }}><table className="t"><thead><tr><th>Trường</th><th>Giá trị</th><th>Chứng từ</th></tr></thead><tbody>
+        {items.map((f) => <tr key={f.id}><td>{f.label}</td><td className="mono wrap-any">{f.value}</td><td className="small muted">{f.doc}{f.page ? ` · tr.${f.page}` : ''}</td></tr>)}
+      </tbody></table></div>
+      <div className="row" style={{ marginTop: 8 }}><button className="btn primary sm" disabled={busy} onClick={confirm}>Đã kiểm tra – xác nhận {items.length} trường này</button>
+        <span className="small muted">hoặc sửa từng giá trị ở màn hình Kiểm tra & xác nhận</span></div>
+    </details>)
 }
 
 function OverrideModal({ blockers, onClose, onSubmit, busy }) {
