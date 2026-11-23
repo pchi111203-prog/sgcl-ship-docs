@@ -170,6 +170,13 @@ class Data:
                                           (voyage_id,)) if f["document_id"] not in self.suspect and f["document_id"] not in self.superseded]
         self.opts = _opts(conn, voyage_id)
         self.voyage = db.row(conn, "SELECT * FROM voyages WHERE id=?", (voyage_id,)) or {}
+        # the text read on every page (all readings), for declarations filled from free text (health, plant...)
+        self.texts = {}
+        for r in db.rows(conn, "SELECT p.document_id, p.text FROM document_pages p JOIN documents d ON d.id=p.document_id "
+                               "WHERE d.voyage_id=? ORDER BY p.document_id, p.page_no", (voyage_id,)):
+            if r["document_id"] not in self.suspect:
+                self.texts.setdefault(r["document_id"], []).append(r["text"] or "")
+
         self.auto_codes = {}
 
     def dtype(self, f):
@@ -194,6 +201,11 @@ class Data:
                 recs[k][f["field_key"]] = f
                 order.setdefault(k, (f["document_id"] or 10 ** 9, f["record_index"]))
         return [recs[k] for k in sorted(recs, key=lambda k: order[k])]
+
+    def text_of(self, types=None):
+        """Text of the documents of these types (all documents when None), document after document."""
+        return "\n".join("\n".join(t) for did, t in self.texts.items()
+                         if types is None or (self.docs.get(did) or {}).get("doc_type") in types)
 
     def vietnamese_port(self, raw):
         """The same port written in Vietnamese somewhere in this voyage ('LONG AN PORT, VIETNAM' -> 'CẢNG QUỐC TẾ LONG AN'),
@@ -373,6 +385,9 @@ def build_plan(conn, voyage_id):
     _empty_containers(plan, data)
     _port_calls(plan, data)
     _security(plan, data)
+    _health(plan, data)
+    _arrival_confirmation(plan, data)
+    _plant_animal(plan, data)
     # port-call block of GD / NOA: what no document states is written NIL (SGCL rule)
     for sheet, (r0, r1) in NIL_BLOCKS.items():
         for r in range(r0, r1 + 1):
@@ -870,6 +885,165 @@ def _cargo_groups(plan, data):
 
 def _date(v):
     return (N.parse_date(v)[0] or v) if v else None
+
+
+def _arrival_confirmation(plan, data):
+    """ConfirmationOfArrival: time of arrival (actual berthing / arrival when written, else ETA), other requirements 'No'."""
+    if not data.fields:
+        return
+    sheet, o = "ConfirmationOfArrival", data.opts
+    def put(ref, v, label, src):
+        if v not in (None, "") and (sheet, ref) not in plan.cells and not o.get(f"cell:{sheet}!{ref}"):
+            _set(plan, sheet, ref, v, label, [{"doc": src, "status": "DERIVED"}], "derived")
+            plan.empty = [e for e in plan.empty if not e.startswith(f"{sheet}!{ref} ")]
+    eta = plan.cells.get(("Notice ship to port", "B24")) or plan.cells.get(("General Declaration", "B24"))
+    put("B6", eta, "Thời gian đến", "Thời gian tàu đến (NOA/GD)")
+    put("B7", "No", "Các yêu cầu khác", "Không có yêu cầu khác (quy ước SGCL)")
+
+
+PLANT_CODES = {"DRY01", "DRY05", "DRY06", "DRY07", "DRY08", "DRY09", "DRY10", "DRY11", "DRY18", "DRY19", "DRY21", "DRY24", "DRY25",
+               "DRY28", "DRY31", "DRY32", "DRY33", "DRY45", "DRY52", "DRY54", "DRY58", "DRY12"}
+ANIMAL_RX = r"\bMEAT\b|\bBEEF\b|\bPORK\b|\bMUTTON\b|\bLAMB\b|CHICKEN|POULTRY|\bFISH\b|SEAFOOD|LIVESTOCK|CATTLE|\bTHIT\b|THUY\s+SAN|GIA\s+SUC\s+SONG|\bBO\s+SONG"
+
+
+def _plant_animal(plan, data):
+    """Plant / animal quarantine declarations when the cargo is plant / animal products (SGCL wording:
+    '5630.7 TẤN BÃ ĐẬU NÀNH', 'HÀNG DỠ Ở CẢNG ...: ...')."""
+    recs = data.records("cargo", ["CARGO_MANIFEST", "MANUAL"]) or data.records("cargo", ["BILL_OF_LADING"])
+    if not recs:
+        return
+    o = data.opts
+    arrival = plan.cells.get(("General Declaration", "B7")) or plan.cells.get(("Notice ship to port", "B7"))
+    port_vi = data.vietnamese_port(data.voyage.get("port_of_arrival") or (data.header("port_of_arrival") or [{"value": None}])[0]["value"])
+    plant, animal = {}, {}
+    for r in recs:
+        d = N.strip_accents(_v(r, "description") or "").upper()
+        table = LIQUID_CODES if re.search(_LIQUID, d) else GOODS_CODES
+        hit = next(((cd, nm) for rx, cd, nm in table if re.search(rx, d)), None)
+        t = _tonnes(r) or 0
+        if hit and hit[0] in PLANT_CODES:
+            plant[hit[1]] = plant.get(hit[1], 0) + t
+        elif re.search(ANIMAL_RX, d):
+            nm = re.split(r"\(|,", _v(r, "description") or "")[0].strip().upper()
+            animal[nm] = animal.get(nm, 0) + t
+    def qty(dct):
+        return "; ".join(f"{N.fmt_number(round(v, 3))} TẤN {k}" if v else k for k, v in dct.items())
+    for sheet, dct in (("Declaration For Plant", plant), ("Declaration For Animal", animal)):
+        if not dct:
+            continue
+        def put(ref, v, label, src):
+            if v not in (None, "") and (sheet, ref) not in plan.cells and not o.get(f"cell:{sheet}!{ref}"):
+                _set(plan, sheet, ref, v, label, [{"doc": src, "status": "DERIVED"}], "derived")
+                plan.empty = [e for e in plan.empty if not e.startswith(f"{sheet}!{ref} ")]
+        for ref, key, lab in (("B4", "doc_year", "Năm"),):
+            put(ref, o.get(key), lab, "Tùy chọn xuất file")
+        here = f"HÀNG DỠ Ở {(port_vi or '').upper()}: {qty(dct)}".strip()
+        if sheet == "Declaration For Plant":
+            pol = next((_v(r, "pol") for r in recs if _v(r, "pol")), None)
+            dep = next((_v(r, "shipped_on_board") or _v(r, "date_of_bl") for r in data.records("cargo") if _v(r, "shipped_on_board") or _v(r, "date_of_bl")), None)
+            put("B6", "NIL", "Tên bác sĩ", "Không có bác sĩ → NIL")
+            put("B7", data.code("locode", pol)[0] if pol and data.code("locode", pol)[1] else None, "Cảng bốc hàng đầu tiên", "Cảng xếp hàng (B/L, Manifest)")
+            put("B8", _date(dep), "Ngày rời cảng", "Ngày xếp hàng / phát hành B/L")
+            put("B9", qty(dct), "Hàng thực vật nhận ở cảng đầu tiên", "Manifest / B/L")
+            put("B10", "NIL", "Hàng thực vật nhận ở cảng khác", "Không có")
+            put("B11", arrival, "Cảng đến tiếp theo", "Cảng đến (mã)")
+            put("B12", here, "Hàng thực vật dỡ ở cảng đến", "Manifest / B/L")
+            for ref, key, lab in (("B13", "sign_place", "Nơi ký"), ("B14", "sign_date", "Ngày ký"), ("B15", "signer", "Người ký")):
+                put(ref, o.get(key), lab, "Tùy chọn xuất file")
+        else:
+            put("B6", qty(dct), "Hàng động vật nhận ở cảng đầu tiên", "Manifest / B/L")
+            put("B7", here, "Hàng động vật dỡ ở cảng đến", "Manifest / B/L")
+            put("B8", arrival, "Cảng đến tiếp theo", "Cảng đến (mã)")
+            put("B9", "NIL", "Hàng động vật dỡ ở cảng khác", "Không có")
+            for ref, key, lab in (("B10", "sign_place", "Nơi ký"), ("B11", "sign_date", "Ngày ký"), ("B12", "signer", "Người ký")):
+                put(ref, o.get(key), lab, "Tùy chọn xuất file")
+
+
+HEALTH_SHEET = "Declaration For Health"
+HEALTH_QUESTIONS = [  # (cell, words of the question in the Maritime Declaration of Health)
+    ("B25", r"CHET|DIED|DEATH"), ("B28", r"TRUYEN\s+NHIEM|INFECTIOUS"), ("B30", r"LON\s+HON|GREATER\s+THAN|ABNORMAL|BINH\s+THUONG"),
+    ("B32", r"(HIEN\s+NAY|HIEN\s+TAI).{0,30}OM|ILL\s+PERSON\s+ON\s+BOARD"), ("B34", r"THAY\s+THUOC|NHAN\s+VIEN\s+Y\s+TE|MEDICAL\s+PRACTITIONER"),
+    ("B36", r"NHIEM\s+TRUNG|LAY\s+LAN|O\s+NHIEM|INFECTION\s+OR\s+SPREAD"), ("B38", r"BIEN\s+PHAP\s+VE\s+SINH|SANITARY\s+MEASURE"),
+    ("B40", r"TRON\s+(THEO\s+)?TAU|LAU\s+VE|STOWAWAY"), ("B42", r"DONG\s+VAT|ANIMAL|PET\b"),
+]
+
+
+def _yes_no(line):
+    """'Có/Yes' / 'Không/No' answered at the end of a question line."""
+    u = N.strip_accents(line).upper()
+    tail = u.rsplit("?", 1)[-1] if "?" in u else u[-30:]
+    if re.search(r"\bKHONG\b|\bNO\b", tail):
+        return "Không/No"
+    if re.search(r"\bCO\b|\bYES\b", tail):
+        return "Có/Yes"
+    return None
+
+
+def _health(plan, data):
+    """Declaration For Health from the Maritime Declaration of Health (questions, ports of the last 30 days, sanitation
+    certificate) and the voyage data; questions not found in the declaration are answered 'Không/No' (noted)."""
+    if not data.fields:
+        return
+    sheet, o = HEALTH_SHEET, data.opts
+    mdh = data.text_of(["HEALTH_DECLARATION"])
+    alltxt = data.text_of()
+    def put(ref, v, label, src, kind="derived"):
+        if v not in (None, "") and (sheet, ref) not in plan.cells and not o.get(f"cell:{sheet}!{ref}"):
+            _set(plan, sheet, ref, v, label, [{"doc": src, "status": "DERIVED" if kind == "derived" else "CONFIRMED"}], kind)
+    arrival = plan.cells.get(("General Declaration", "B7")) or plan.cells.get(("Notice ship to port", "B7"))
+    last = plan.cells.get(("General Declaration", "B6")) or plan.cells.get(("Notice ship to port", "B6"))
+    eta = (plan.cells.get(("General Declaration", "B24")) or plan.cells.get(("Notice ship to port", "B24")) or "")[:10] or None
+    for k, v in (("doc_no", "B3"), ("doc_year", "B4")):
+        put(v, o.get(k), k, "Tùy chọn xuất file", "option")
+    m = re.search(r"(?:Ng[aà]y\s*\(Date\)|Date)\s*[:]\s*(\d{1,2}/\d{1,2}/\d{4})", mdh)
+    put("B6", arrival, "Xuất trình tại cảng", "Cảng đến (mã)")
+    put("B7", m.group(1) if m else eta, "Ngày xuất", "Giấy khai báo y tế" if m else "Ngày tàu đến (ETA)")
+    put("B8", last, "Đến từ", "Cảng rời cuối (mã)")
+    put("B9", arrival, "Nơi đến", "Cảng đến (mã)")
+    put("B15", arrival, "Tên cảng đến", "Cảng đến (mã)")
+    put("B16", eta, "Ngày tháng đến", "Ngày tàu đến (ETA)")
+    # ship sanitation (control exemption) certificate: in the declaration or as its own certificate
+    up_all = N.strip_accents(alltxt).upper()
+    if re.search(r"SANITATION\s+CONTROL|SSCEC|SSCC|MIEN\s+(KIEM\s+SOAT|XU\s+LY)\s+VE\s+SINH|XU\s+LY\s+VE\s+SINH\s+TAU", up_all):
+        put("B10", "Có/Yes", "GCN miễn xử lý vệ sinh còn giá trị", "Có Giấy chứng nhận miễn xử lý vệ sinh tàu trong bộ chứng từ")
+        sm = re.search(r"(?:SSCEC|SSCC|v[eệ]\s+sinh)[^\n]{0,80}?(?:c[aấ]p\s+ng[aà]y|date\s+of\s+issue|ng[aà]y\s+c[aấ]p)[^0-9\n]{0,15}(\d{1,2}/\d{1,2}/\d{4})"
+                       r"(?:[^\n]{0,10}?t[aạ]i\s+([^.\n,;]+))?", alltxt, re.I)
+        pm = re.search(r"(?:C[aả]ng\s+ki[eể]m\s+tra|Port\s+of\s+inspection)[^:\n]*:\s*([^\n]+?)(?:\s{2,}|\s+Ng[aà]y|$)", alltxt, re.I)
+        dm = re.search(r"(?:C[aả]ng\s+ki[eể]m\s+tra|Port\s+of\s+inspection)[^\n]*?(?:Date\s+of\s+issue|Ng[aà]y\s+c[aấ]p)[^0-9\n]{0,10}(\d{1,2}/\d{1,2}/\d{4})", alltxt, re.I)
+        place = (sm.group(2) if sm and sm.group(2) else pm.group(1) if pm else None)
+        if place:
+            put("B11", re.split(r",", place)[0].strip().upper(), "Cấp tại", "Giấy chứng nhận miễn xử lý vệ sinh tàu")
+        put("B12", (sm.group(1) if sm else dm.group(1) if dm else None), "Ngày tháng cấp", "Giấy chứng nhận miễn xử lý vệ sinh tàu")
+    # re-inspection / WHO affected area: answered in the declaration
+    for ref, rx in (("B13", r"KIEM\s+TRA\s+LAI|RE-?INSPECTION"), ("B14", r"\bWHO\b|VUNG\s+CO\s+DICH|AFFECTED\s+AREA")):
+        line = next((l for l in mdh.splitlines() if re.search(rx, N.strip_accents(l).upper())), None)
+        put(ref, (_yes_no(line) if line else None) or "Không/No", "Câu hỏi y tế", "Giấy khai báo y tế" if line else "Không ghi → Không/No")
+    # ports of the last 30 days, as written
+    pm = re.search(r"(?:c[aả]ng\s+gh[eé]\s+qua[^:\n]*|ports?\s+of\s+call[^:\n]*within\s+30\s+days[^:\n]*)[:]\s*([^\n]+)", mdh, re.I)
+    if pm:
+        put("B17", re.sub(r"\b\d+\.\s*", "", pm.group(1)).strip(" ;."), "Các cảng đã ghé", "Giấy khai báo y tế")
+    else:
+        put("B17", (data.header("last_port") or [{"value": None}])[0]["value"], "Các cảng đã ghé", "Cảng rời cuối")
+    sm2 = re.search(r"(?:B[aá]c\s+s[iĩỹ]|SURGEON)[^:\n]*:\s*([A-Z][^\n]{2,40})", mdh, re.I)
+    put("B18", sm2.group(1).strip() if sm2 else "NIL", "Bác sĩ trên tàu", "Giấy khai báo y tế" if sm2 else "Không có bác sĩ → NIL")
+    for ref, key, lab in (("B20", "sign_place", "Nơi ký"), ("B21", "sign_date", "Ngày ký"), ("B22", "signer", "Người ký")):
+        put(ref, o.get(key), lab, "Tùy chọn xuất file", "option")
+    # health questions
+    lines = [l for l in mdh.splitlines() if "?" in l or re.match(r"\s*\d+\.", l)]
+    defaulted = []
+    for ref, rx in HEALTH_QUESTIONS:
+        line = next((l for l in lines if re.search(rx, N.strip_accents(l).upper())), None)
+        ans = _yes_no(line) if line else None
+        if not ans:
+            defaulted.append(ref)
+        put(ref, ans or "Không/No", "Câu hỏi y tế", "Giấy khai báo y tế" if ans else "Không ghi → Không/No")
+        if ref == "B25":
+            dm2 = re.search(r"(?:t[oổ]ng\s+s[oố]\s+ng[uư][oờ]i\s+ch[eế]t|number\s+of\s+deaths?)[^0-9\n]{0,10}(\d+)", line or "", re.I)
+            put("B27", dm2.group(1) if dm2 else ("0" if (ans or "Không/No") == "Không/No" else None), "Số tử vong", "Giấy khai báo y tế")
+            put("B26", "NIL" if (ans or "Không/No") == "Không/No" else None, "Chi tiết", "Không có người chết → NIL")
+    if defaulted:
+        plan.warnings.append(f"{sheet}: {'không có Giấy khai báo y tế' if not mdh else 'Giấy khai báo y tế không trả lời'} các câu "
+                             f"{', '.join(defaulted)} - đang ghi Không/No, cần kiểm tra và xác nhận.")
 
 
 def _security(plan, data):
