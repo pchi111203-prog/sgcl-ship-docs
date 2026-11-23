@@ -671,4 +671,5 @@ def test_store_units_from_the_nsw_list():
     expect = {"MT": "TNE", "Lít": "LTR", "Cây": "UNY", "Chai": "UNA", "Kg": "KGM", "Lon": "UNL", "Gói": "PKG", "Cuộn": "ROL",
               "Cuốn": "UNN", "Tút": "UND", "Cái": "PCE", "Bottles": "UNA"}
     assert {u: _store_unit(u) for u in expect} == expect
-    assert _store_unit("Thùng") == "Thùng"  # not in the list: as written (noted)
+    assert _store_unit("Thùng") == "UNK" and _store_unit("Phuy") == "BBL"  # closest unit of the list
+    assert _store_unit("Xyz") == "Xyz"  # nothing close: as written (noted)
