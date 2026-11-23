@@ -320,6 +320,10 @@ def build_plan(conn, voyage_id):
                     skip = ("MANUAL",) if key in OPERATION_KEYS else ("OTHER", "REFERENCE", "MANUAL")  # port-call facts: SOF, berthing plan...
                     others = [t for t in {data.dtype(f) for f in data.fields} if t not in types and t not in skip]
                     fs = data.header(key, sorted(others))
+                if fs and key.startswith("issc_"):
+                    # ISSC values only from the certificate itself (or a security declaration): 'issued by Master on ...'
+                    # read on a port clearance by an earlier version is not the ISSC authority
+                    fs = [f for f in fs if "operational" in (f["method"] or "") or data.dtype(f) in ("SHIP_SECURITY", "MANUAL") or f["status"] in ("EDITED", "CONFIRMED") and "issued by" not in (f["original_value"] or "").lower() and "master" not in (f["value"] or "").lower()]
                 if fs and key == "port_clearance_no":
                     # the clearance of the LAST port before Viet Nam: the number naming its port code (SPB.IDPNK... = Pontianak)
                     lp = data.header("last_port", [GD, NOA]) or data.header("last_port")
