@@ -7,6 +7,7 @@ exported file would lose its dropdowns. Here only <sheetData> cells (and DV rang
 list grows) are touched; every other part of the package is copied byte-for-byte.
 """
 import copy
+import unicodedata
 import re
 import zipfile
 
@@ -128,7 +129,8 @@ class Sheet:
         c.set("t", "inlineStr")
         is_ = etree.SubElement(c, Q("is"))
         t = etree.SubElement(is_, Q("t"))
-        t.text = str(value)
+        # composed Vietnamese letters (NFC): 'Hồ' typed as H + o + combining marks shows wrongly in Excel / NSW
+        t.text = unicodedata.normalize("NFC", str(value))
         if str(value) != str(value).strip():
             t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
         self.dirty = True

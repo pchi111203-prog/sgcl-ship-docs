@@ -258,17 +258,21 @@ def _touch(c, vid):
 @app.get("/api/dashboard")
 def dashboard(u=Depends(current_user)):
     with db.tx() as c:
-        voyages = db.rows(c, "SELECT * FROM voyages ORDER BY id DESC")
+        voyages = db.rows(c, "SELECT * FROM voyages WHERE deleted_at IS NULL AND archived_at IS NULL ORDER BY id DESC")
         for v in voyages:
             v["progress"] = voyage_progress(c, v)
+        live = "voyage_id IN (SELECT id FROM voyages WHERE deleted_at IS NULL)"
+        # a combined file split into its documents is counted through its parts, not as one more document
         stats = {
             "voyages": len(voyages),
             "in_progress": sum(1 for v in voyages if v["progress"]["status"] in ("PROCESSING", "IN_REVIEW", "NEW", "READY")),
-            "documents": db.row(c, "SELECT COUNT(*) n FROM documents")["n"],
-            "extracted": db.row(c, "SELECT COUNT(*) n FROM documents WHERE status='EXTRACTED'")["n"],
-            "doc_errors": db.row(c, "SELECT COUNT(*) n FROM documents WHERE status='ERROR'")["n"],
+            "documents": db.row(c, f"SELECT COUNT(*) n FROM documents WHERE status!='SPLIT' AND {live}")["n"],
+            "extracted": db.row(c, f"SELECT COUNT(*) n FROM documents WHERE status='EXTRACTED' AND {live}")["n"],
+            "doc_errors": db.row(c, f"SELECT COUNT(*) n FROM documents WHERE status='ERROR' AND {live}")["n"],
             "issues": sum(v["progress"]["blocking"] for v in voyages),
-            "exports": db.row(c, "SELECT COUNT(*) n FROM exports")["n"],
+            "exports": db.row(c, f"SELECT COUNT(*) n FROM exports WHERE {live}")["n"],
+            "archived": db.row(c, "SELECT COUNT(*) n FROM voyages WHERE deleted_at IS NULL AND archived_at IS NOT NULL")["n"],
+            "trash": db.row(c, "SELECT COUNT(*) n FROM voyages WHERE deleted_at IS NOT NULL")["n"],
         }
     return {"stats": stats, "recent": voyages[:10]}
 
@@ -351,7 +355,7 @@ def _find_duplicate_voyage(c, data):
     vno = N.norm_id(data.get("voyage_no"))
     if not vno:
         return None
-    for v in db.rows(c, "SELECT * FROM voyages WHERE is_sample=0"):
+    for v in db.rows(c, "SELECT * FROM voyages WHERE is_sample=0 AND deleted_at IS NULL"):
         same_ship = (data.get("imo") and v["imo"] and N.norm_id(data["imo"]) == N.norm_id(v["imo"])) or \
                     (not (data.get("imo") and v["imo"]) and data.get("vessel_name") and v["vessel_name"]
                      and N.vessel_key(data["vessel_name"]) == N.vessel_key(v["vessel_name"]))
@@ -366,9 +370,12 @@ def _find_duplicate_voyage(c, data):
 
 
 @app.get("/api/voyages")
-def list_voyages(u=Depends(current_user)):
+def list_voyages(scope: str = "active", u=Depends(current_user)):
+    """scope: active (default), archived (Lưu trữ) or trash (Thùng rác)."""
+    where = {"active": "deleted_at IS NULL AND archived_at IS NULL", "archived": "deleted_at IS NULL AND archived_at IS NOT NULL",
+             "trash": "deleted_at IS NOT NULL"}.get(scope, "deleted_at IS NULL AND archived_at IS NULL")
     with db.tx() as c:
-        vs = db.rows(c, "SELECT * FROM voyages ORDER BY id DESC")
+        vs = db.rows(c, f"SELECT * FROM voyages WHERE {where} ORDER BY id DESC")
         for v in vs:
             v["progress"] = voyage_progress(c, v)
         return vs
@@ -463,8 +470,47 @@ def profile_suggestions(vid: int, u=Depends(current_user)):
 
 @app.delete("/api/voyages/{vid}")
 def delete_voyage(vid: int, u=Depends(supervisor)):
+    """Move the voyage to the trash (documents, data and exports kept; restorable)."""
     with db.tx() as c:
         _voyage_or_404(c, vid)
+        c.execute("UPDATE voyages SET deleted_at=?, deleted_by=? WHERE id=?", (db.now(), u["username"], vid))
+        db.log(c, vid, "TRASH_VOYAGE", u["username"], reason="Chuyển chuyến tàu vào thùng rác")
+    return {"ok": True}
+
+
+@app.post("/api/voyages/{vid}/restore")
+def restore_voyage(vid: int, u=Depends(current_user)):
+    with db.tx() as c:
+        _voyage_or_404(c, vid)
+        c.execute("UPDATE voyages SET deleted_at=NULL, deleted_by=NULL WHERE id=?", (vid,))
+        db.log(c, vid, "RESTORE_VOYAGE", u["username"], reason="Khôi phục chuyến tàu từ thùng rác")
+    return {"ok": True}
+
+
+class ArchiveIn(BaseModel):
+    archived: bool = True
+
+
+@app.post("/api/voyages/{vid}/archive")
+def archive_voyage(vid: int, body: ArchiveIn, u=Depends(current_user)):
+    with db.tx() as c:
+        _voyage_or_404(c, vid)
+        if body.archived:
+            c.execute("UPDATE voyages SET archived_at=?, archived_by=? WHERE id=?", (db.now(), u["username"], vid))
+        else:
+            c.execute("UPDATE voyages SET archived_at=NULL, archived_by=NULL WHERE id=?", (vid,))
+        db.log(c, vid, "ARCHIVE_VOYAGE" if body.archived else "UNARCHIVE_VOYAGE", u["username"],
+               reason="Chuyển vào Lưu trữ" if body.archived else "Đưa ra khỏi Lưu trữ")
+    return {"ok": True}
+
+
+@app.delete("/api/voyages/{vid}/purge")
+def purge_voyage(vid: int, u=Depends(supervisor)):
+    """Permanent deletion - only from the trash."""
+    with db.tx() as c:
+        v = _voyage_or_404(c, vid)
+        if not v.get("deleted_at"):
+            raise HTTPException(400, "Chỉ xóa vĩnh viễn được chuyến tàu đang ở Thùng rác.")
         for d in db.rows(c, "SELECT stored_name FROM documents WHERE voyage_id=?", (vid,)):
             _rm(os.path.join(db.UPLOAD_DIR, d["stored_name"]))
         for e in db.rows(c, "SELECT stored_name FROM exports WHERE voyage_id=?", (vid,)):
@@ -1170,6 +1216,8 @@ def set_options(vid: int, body: dict, u=Depends(current_user)):
     with db.tx() as c:
         _voyage_or_404(c, vid)
         old = nsw_export._opts(c, vid)
+        import unicodedata
+        body = {k: unicodedata.normalize("NFC", v) if isinstance(v, str) else v for k, v in body.items()}  # 'HỒ' typed as o + marks
         for k, v in body.items():
             if (old.get(k) or "") == (v or ""):
                 continue

@@ -6,7 +6,7 @@ import { api, auth } from './api'
 import { ToastProvider, VoyageGate } from './components'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
-import { VoyageList, VoyageForm } from './pages/Voyages'
+import { VoyageList, VoyageForm, VoyageBin } from './pages/Voyages'
 import Documents from './pages/Documents'
 import CrossCheck from './pages/CrossCheck'
 import Review from './pages/Review'
@@ -25,7 +25,9 @@ const NAV = [
   { to: '/work/export', label: 'Xuất file Excel NSW', n: 7, match: 'export' },
   { sep: 'Hệ thống' },
   { to: '/history', label: 'Lịch sử xử lý', n: 8 },
-  { to: '/settings', label: 'Cài đặt hệ thống', n: 9 },
+  { to: '/archive', label: 'Lưu trữ', n: 9 },
+  { to: '/trash', label: 'Thùng rác', n: 10 },
+  { to: '/settings', label: 'Cài đặt hệ thống', n: 11 },
 ]
 
 function Shell({ user, onLogout, children }) {
@@ -52,7 +54,7 @@ function Shell({ user, onLogout, children }) {
         <div className="topbar">
           <div className="ctx"><b style={{ color: 'var(--teal-800)' }}>Công ty CP Dịch vụ Tiếp vận và Thương mại Sài Gòn Cửu Long</b><span className="muted small">· Bộ phận Đại lý tàu biển</span></div>
           <div className="spacer" />
-          <span className="small muted">Hệ thống chỉ tạo file Excel – không tự gửi lên Cổng NSW</span>
+          <span className="small muted">Hệ thống trích xuất tự động & Tạo TemplateNSW</span>
         </div>
         <div className="content">{children}</div>
       </main>
@@ -84,6 +86,8 @@ function App() {
         <Route path="/voyages/:id/export" element={<Export user={user} />} />
         <Route path="/work/:step" element={<WorkRedirect />} />
         <Route path="/history" element={<History />} />
+        <Route path="/archive" element={<VoyageBin user={user} scope="archived" />} />
+        <Route path="/trash" element={<VoyageBin user={user} scope="trash" />} />
         <Route path="/settings" element={<Settings user={user} />} />
         <Route path="*" element={<div className="empty">Không tìm thấy trang</div>} />
       </Routes>

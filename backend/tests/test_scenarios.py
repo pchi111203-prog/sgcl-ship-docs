@@ -697,3 +697,23 @@ def test_issc_dates_vietnam_register_form():
                    "Ngày cấp: 14/01/2022", "Date of issue: 14 January 2022"])
     f = {x["field_key"]: x["value"] for x in extract.extract_document("CERTIFICATE", [{"page_no": 1, "method": "text", "confidence": 1, "tables": [], "text": t}])}
     assert f["issc_issue_date"] == "14/01/2022" and f["issc_expiry"] == "09/01/2027" and f["issc_issuer"] == "VR"
+
+
+def test_trash_restore_archive():
+    from app import db
+    with db.tx() as cx:  # moving to the trash / purging: supervisor
+        cx.execute("UPDATE users SET role='supervisor' WHERE username='staff'")
+    v = client.post("/api/voyages", json={"vessel_name": "BIN TEST", "voyage_no": "77"}, headers=H).json()
+    ids = lambda scope: [x["id"] for x in client.get(f"/api/voyages?scope={scope}", headers=H).json()]
+    assert client.delete(f"/api/voyages/{v['id']}", headers=H).status_code == 200
+    assert v["id"] in ids("trash") and v["id"] not in ids("active")
+    client.post(f"/api/voyages/{v['id']}/restore", headers=H)
+    assert v["id"] in ids("active")
+    client.post(f"/api/voyages/{v['id']}/archive", json={"archived": True}, headers=H)
+    assert v["id"] in ids("archived") and v["id"] not in ids("active")
+    client.post(f"/api/voyages/{v['id']}/archive", json={"archived": False}, headers=H)
+    assert client.delete(f"/api/voyages/{v['id']}/purge", headers=H).status_code == 400  # only from the trash
+    client.delete(f"/api/voyages/{v['id']}", headers=H)
+    assert client.delete(f"/api/voyages/{v['id']}/purge", headers=H).status_code == 200 and v["id"] not in ids("trash")
+    with db.tx() as cx:
+        cx.execute("UPDATE users SET role='staff' WHERE username='staff'")

@@ -187,7 +187,9 @@ def init_db():
                                 ("documents", "pages_cache", "TEXT"),           # JSON pages of a child (no re-reading/OCR)
                                 ("documents", "page_from", "INTEGER"),
                                 ("documents", "page_to", "INTEGER"),
-                                ("documents", "split_disabled", "INTEGER NOT NULL DEFAULT 0")):
+                                ("documents", "split_disabled", "INTEGER NOT NULL DEFAULT 0"),
+                                ("voyages", "deleted_at", "TEXT"), ("voyages", "deleted_by", "TEXT"),       # in the trash (restorable)
+                                ("voyages", "archived_at", "TEXT"), ("voyages", "archived_by", "TEXT")):    # archived (kept for viewing)
             if col not in [r[1] for r in c.execute(f"PRAGMA table_info({table})")]:
                 c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
         if not c.execute("SELECT 1 FROM users").fetchone():

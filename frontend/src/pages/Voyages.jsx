@@ -15,8 +15,11 @@ export function VoyageList({ user }) {
   const k = q.trim().toUpperCase()
   const rows = list.filter((v) => (showSample || !v.is_sample) && (!k || [v.voyage_code, v.vessel_name, v.imo, v.voyage_no, v.call_sign].some((x) => (x || '').toUpperCase().includes(k))))
   const del = async (v) => {
-    if (!window.confirm(`Xóa chuyến ${v.voyage_code} cùng toàn bộ chứng từ, dữ liệu và file đã xuất? Không thể hoàn tác.`)) return
-    try { await api(`/api/voyages/${v.id}`, { method: 'DELETE' }); toast('Đã xóa chuyến tàu'); load() } catch (e) { toast(e.message, 'err') }
+    if (!window.confirm(`Chuyển chuyến ${v.voyage_code} vào Thùng rác? Có thể khôi phục lại trong mục Thùng rác.`)) return
+    try { await api(`/api/voyages/${v.id}`, { method: 'DELETE' }); toast('Đã chuyển vào Thùng rác'); load() } catch (e) { toast(e.message, 'err') }
+  }
+  const archive = async (v) => {
+    try { await api(`/api/voyages/${v.id}/archive`, { method: 'POST', body: { archived: true } }); toast(`Đã chuyển ${v.voyage_code} vào Lưu trữ`); load() } catch (e) { toast(e.message, 'err') }
   }
   return (
     <>
@@ -43,7 +46,8 @@ export function VoyageList({ user }) {
                 <td className="right" style={{ whiteSpace: 'nowrap' }}>
                   <button className="btn sm" onClick={() => nav(`/voyages/${v.id}/edit`)}>Sửa</button>{' '}
                   <button className="btn sm primary" onClick={() => nav(`/voyages/${v.id}/documents`)}>Mở</button>{' '}
-                  {user.role === 'supervisor' && <button className="btn sm danger" onClick={() => del(v)}>Xóa</button>}
+                  <button className="btn sm" onClick={() => archive(v)} title="Chuyển vào mục Lưu trữ">Lưu trữ</button>{' '}
+                  {user.role === 'supervisor' && <button className="btn sm danger" onClick={() => del(v)} title="Chuyển vào Thùng rác (khôi phục được)">Xóa</button>}
                 </td>
               </tr>
             ))}
@@ -129,5 +133,54 @@ export function VoyageForm() {
       </div>
       <div className="alert blue">Thông tin nhập ở đây là “Hồ sơ chuyến tàu” – dùng để phát hiện chứng từ thuộc tàu/chuyến khác (Wrong Voyage Document). Dữ liệu khai báo NSW được lấy từ chứng từ đã xác nhận.</div>
     </form>
+  )
+}
+
+
+/* Lưu trữ (archived voyages, kept for viewing) and Thùng rác (deleted voyages, restorable). */
+export function VoyageBin({ user, scope }) {
+  const [list, setList] = useState(null)
+  const nav = useNavigate()
+  const toast = useToast()
+  const trash = scope === 'trash'
+  const load = () => api(`/api/voyages?scope=${scope}`).then(setList)
+  useEffect(() => { setList(null); load() }, [scope])
+  const act = async (fn, msg) => { try { await fn(); toast(msg); load() } catch (e) { toast(e.message, 'err') } }
+  const restore = (v) => act(() => api(`/api/voyages/${v.id}/restore`, { method: 'POST' }), `Đã khôi phục ${v.voyage_code}`)
+  const unarchive = (v) => act(() => api(`/api/voyages/${v.id}/archive`, { method: 'POST', body: { archived: false } }), `Đã đưa ${v.voyage_code} ra khỏi Lưu trữ`)
+  const purge = (v) => {
+    if (!window.confirm(`Xóa VĨNH VIỄN chuyến ${v.voyage_code} cùng toàn bộ chứng từ, dữ liệu và file đã xuất? Không thể khôi phục.`)) return
+    act(() => api(`/api/voyages/${v.id}/purge`, { method: 'DELETE' }), 'Đã xóa vĩnh viễn')
+  }
+  if (!list) return <div className="empty"><Spinner /></div>
+  return (
+    <>
+      <div className="page-head"><div>
+        <h1>{trash ? 'Thùng rác' : 'Lưu trữ'}</h1>
+        <p>{trash ? 'Chuyến tàu đã xóa. Bấm "Khôi phục" để đưa chuyến trở lại danh sách; "Xóa vĩnh viễn" (Supervisor) xóa hẳn chứng từ và file.'
+          : 'Chuyến tàu đã lưu trữ – vẫn mở xem đầy đủ chứng từ, dữ liệu và file Excel đã xuất. Bấm "Bỏ lưu trữ" để đưa trở lại danh sách đang xử lý.'}</p>
+      </div></div>
+      <div className="card tight">
+        <table className="t">
+          <thead><tr><th>Mã chuyến</th><th>Tên tàu</th><th>IMO</th><th>Voyage</th><th>Cảng đến</th><th>ETA</th><th>{trash ? 'Xóa lúc' : 'Lưu trữ lúc'}</th><th /></tr></thead>
+          <tbody>
+            {list.map((v) => (
+              <tr key={v.id}>
+                <td className="mono">{v.voyage_code}</td><td><b>{v.vessel_name || '—'}</b></td><td>{v.imo || '—'}</td><td>{v.voyage_no || '—'}</td>
+                <td className="small">{v.port_of_arrival || '—'}</td><td className="small">{v.eta || '—'}</td>
+                <td className="small">{trash ? `${v.deleted_at || ''} · ${v.deleted_by || ''}` : `${v.archived_at || ''} · ${v.archived_by || ''}`}</td>
+                <td className="right" style={{ whiteSpace: 'nowrap' }}>
+                  {!trash && <><button className="btn sm primary" onClick={() => nav(`/voyages/${v.id}/documents`)}>Mở xem</button>{' '}
+                    <button className="btn sm" onClick={() => unarchive(v)}>Bỏ lưu trữ</button></>}
+                  {trash && <><button className="btn sm primary" onClick={() => restore(v)}>Khôi phục</button>{' '}
+                    {user.role === 'supervisor' && <button className="btn sm danger" onClick={() => purge(v)}>Xóa vĩnh viễn</button>}</>}
+                </td>
+              </tr>
+            ))}
+            {!list.length && <tr><td colSpan={8} className="empty">{trash ? 'Thùng rác trống.' : 'Chưa có chuyến tàu nào được lưu trữ.'}</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </>
   )
 }
