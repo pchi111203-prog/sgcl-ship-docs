@@ -1078,8 +1078,9 @@ def extract_operational(pages):
             continue
         body, ubody = t[m.start():m.start() + 4000], up[m.start():m.start() + 4000]
         date_rx = r"(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4}|\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{4})"
-        dm = re.search(r"(?:DATE\s+OF\s+ISSUE|NGAY\s+CAP)[^0-9\n]{0,20}" + date_rx, ubody)
-        em = re.search(r"(?:VALID\s+UNTIL|CO\s+HIEU\s+LUC\s+DEN|DATE\s+OF\s+EXPIRY|EXPIR\w*|HET\s+HAN)[^0-9\n]{0,25}" + date_rx, ubody)
+        dm = re.search(r"(?:DATE\s+OF\s+ISSUE|DATE\s+ISSUED|ISSUED\s+ON|ISSUE\s+DATE|NGAY\s+CAP|CAP\s+NGAY)[^0-9\n]{0,30}" + date_rx, ubody)
+        em = re.search(r"(?:VALID\s+(?:UNTIL|TILL|TO|THRU|THROUGH)|CO\s+(?:HIEU\s+LUC|GIA\s+TRI)\s+(?:DEN|TOI)|DATE\s+OF\s+EXPIRY|EXPIRY\s+DATE"
+                       r"|EXPIR\w*|HET\s+HAN|NGAY\s+HET\s+HAN)[^0-9\n]{0,30}" + date_rx, ubody)
         conf = 0.9 if p["method"] != "ocr" else 0.7
         if dm:
             found["issc_issue_date"] = {"value": dm.group(1), "page_no": p["page_no"], "confidence": conf, "method": meth(p)}
@@ -1091,6 +1092,23 @@ def extract_operational(pages):
             im = re.search(r"\bBY\s+([A-Z][A-Z .,&'\-]{3,60}?)(?:\s*[\n(]|$)", body.upper())
             if im:
                 found["issc_issuer"] = {"value": im.group(1).strip(" ,."), "page_no": p["page_no"], "confidence": conf * 0.9, "method": meth(p)}
+    # certificate lists (ship's particulars, certificate status): 'ISSC   VR-ISPS-23-0712   18/08/2023   14/08/2028'
+    if "issc_issue_date" not in found:
+        for p in pages:
+            for l in p["text"].splitlines():
+                u = N.strip_accents(l).upper()
+                if re.search(r"\bISSC\b|SHIP\s+SECURITY\s+CERT|AN\s+NINH\s+TAU\s+BIEN", u):
+                    ds = [d for d in re.findall(r"\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4}", l) if N.parse_date(d)[1]]
+                    if len(ds) >= 2:
+                        a, b = N.parse_date(ds[0])[0], N.parse_date(ds[1])[0]
+                        if a[6:10] + a[3:5] + a[:2] < b[6:10] + b[3:5] + b[:2]:
+                            found["issc_issue_date"] = {"value": ds[0], "page_no": p["page_no"], "confidence": 0.8, "method": meth(p) + "-cert-list"}
+                            found["issc_expiry"] = {"value": ds[1], "page_no": p["page_no"], "confidence": 0.8, "method": meth(p) + "-cert-list"}
+                            if "issc_issuer" not in found and re.search(r"\bVR\b|VIETNAM\s+REGISTER|DANG\s+KIEM", u):
+                                found["issc_issuer"] = {"value": "VR", "page_no": p["page_no"], "confidence": 0.8, "method": meth(p) + "-cert-list"}
+                            break
+            if "issc_issue_date" in found:
+                break
     # position (latitude / longitude) written with a label: '10°20.5'N  107°05.3'E', 'Lat: 12-206.676N'
     for p in pages:
         if "latitude" in found:
@@ -1166,9 +1184,20 @@ def extract_document(doc_type, pages):
     keys = hdr_keys + OPERATION_KEYS
     if doc_type != "SHIP_SECURITY":  # 'issued by ...' on other papers is not the ISSC: the certificate is read by extract_operational
         keys = [k for k in keys if not k.startswith("issc_")]
-    hdr = extract_header(pages, list(dict.fromkeys(keys)))
+    keys = list(dict.fromkeys(keys))
+    hdr = extract_header(pages, keys)
     for k, v in extract_operational(pages).items():
         hdr.setdefault(k, v)
+    # scans are read several ways (grey, black/white, without table lines): what one reading misses, another may give
+    n_alt = max((len(p.get("alt_texts") or []) for p in pages), default=0)
+    for i in range(n_alt):
+        alt = [{**p, "text": p["alt_texts"][i], "words": p.get("words") or {}} for p in pages if len(p.get("alt_texts") or []) > i]
+        missing = [k for k in keys if k not in hdr]
+        if missing:
+            for k, v in extract_header(alt, missing, list(H.keys())).items():
+                hdr.setdefault(k, {**v, "method": v["method"] + "-alt", "confidence": min(v["confidence"], 0.75)})
+        for k, v in extract_operational(alt).items():
+            hdr.setdefault(k, {**v, "method": v["method"] + "-alt", "confidence": min(v["confidence"], 0.75)})
     for k, d in hdr.items():
         out.append(dict(section="vessel", record_key="header", record_index=0, field_key=k, **d))
 
@@ -1181,6 +1210,14 @@ def extract_document(doc_type, pages):
         if doc_type == "BILL_OF_LADING":
             continue
         recs = extract_table(pages, section)
+        if n_alt and section != "crew":
+            # a scanned table: the reading (grey, black/white, without the ruling lines) that gives the most rows
+            for i in range(n_alt):
+                alt = [{**p, "text": (p.get("alt_texts") or [p["text"]] * (i + 1))[i] if len(p.get("alt_texts") or []) > i else p["text"]}
+                       for p in pages]
+                ar = extract_table(alt, section)
+                if len(ar) > len(recs) or (len(ar) == len(recs) and sum(len(r["fields"]) for r in ar) > sum(len(r["fields"]) for r in recs)):
+                    recs = ar
         if section == "crew":
             # scanned pages whose table could not be read as a table: read each crew line instead
             by_page = {}

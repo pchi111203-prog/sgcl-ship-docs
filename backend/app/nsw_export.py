@@ -1195,7 +1195,7 @@ def _port_calls(plan, data):
         raw = _v(rec, "port_code") or _v(rec, "port_name")
         code, ok = data.code("locode", raw)
         if not ok:
-            code = "ZZZZZ"  # port without a known UN/LOCODE (SGCL practice)
+            code = None  # no UN/LOCODE found: left empty for staff to type
         no_level += 0 if lvl else 1
         _row(plan, sheet, {"A": code, "B": _v(rec, "port_name"), "C": _date(_v(rec, "arrival")), "D": _date(_v(rec, "departure")),
                            "E": lvl.group(0) if lvl else "1"},

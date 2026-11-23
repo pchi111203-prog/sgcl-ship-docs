@@ -196,7 +196,7 @@ def _ocr_best(img, lang):
         w, h = img.size  # a slightly different scale gives tesseract another chance on small print
         sc = _ocr_pass(_otsu(img.resize((int(w * 0.8), int(h * 0.8)))), lang)
         alts.append(sc[0])
-    if res[1] < 0.9:  # scanned table: one more reading without the ruling lines
+    if True:  # every scan: one more reading without the ruling lines (tables, boxed forms)
         try:
             clean, rules = _remove_table_lines(_otsu(img))
             alts.append(_sparse_text(clean, lang, rules))
