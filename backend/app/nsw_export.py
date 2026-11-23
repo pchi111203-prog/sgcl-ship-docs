@@ -529,6 +529,17 @@ def _stores(plan, data):
             u = m.group(1) if m else u
         unit_raw = _v(rec, "unit") or u
         unit = data.opts.get(f"code:unit:{N.norm_text(unit_raw)}") if unit_raw else None
+        # customs units: cigarettes by the stick (PCE), alcoholic drinks by volume (LTR) - the quantity in brackets
+        # ('12 Cây (2,400 điếu)', '04 Chai (3.0 Lít)') is the one declared
+        art = N.strip_accents(_v(rec, "article") or "").upper()
+        sm = re.search(r"\(\s*([\d.,]+)\s*([^\d\s)]+)\s*\)", _v(rec, "quantity") or "")
+        if sm and not unit:
+            su = N.strip_accents(sm.group(2)).upper()
+            sq = N.parse_number(sm.group(1))[0]
+            if sq is not None and re.match(r"(DIEU|STICKS?|PCS?|PIECES?)$", su):
+                q, unit_raw = sq, "PCE"
+            elif sq is not None and re.match(r"(LIT|LITRES?|LITERS?|LTRS?|L)$", su) and re.search(r"RUOU|SPIRIT|LIQUOR|WINE|VANG|BIA|BEER|WHISK|VODKA|BEVERAGE", art):
+                q, unit_raw = sq, "LTR"
         _row(plan, sheet, {"A": _english(_v(rec, "article"), STORE_ARTICLES, whole=True),
                            "B": _thousands(q) if q is not None else _v(rec, "quantity"),  # 2450 -> 2,450
                            "C": unit or _store_unit(unit_raw), "D": _english(_v(rec, "location"), STORE_PLACES)},
