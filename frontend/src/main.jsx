@@ -35,7 +35,7 @@ function Shell({ user, onLogout, children }) {
   return (
     <div className="shell">
       <aside className="sidebar">
-        <div className="brand"><img src="/sgcl-logo.svg" alt="SGCL" /><div><b>SGCL</b><span>Ship Documentation<br />Automation System</span></div></div>
+        <div className="brand"><img src="/sgcl-logo-dark.png" alt="SGCL NSW Assist" /></div>
         <nav className="nav">
           {NAV.map((n, i) => n.sep ? <div key={i} className="sep">{n.sep}</div> : (
             <NavLink key={n.to} to={n.to} end={n.end}

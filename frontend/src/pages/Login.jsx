@@ -18,10 +18,9 @@ export default function Login({ onLogin }) {
   return (
     <div className="login-wrap">
       <form className="login" onSubmit={submit}>
-        <div className="row" style={{ marginBottom: 20 }}>
-          <img src="/sgcl-logo.svg" alt="SGCL" width="48" />
-          <div><div style={{ fontSize: 22, fontWeight: 700, color: 'var(--teal-800)' }}>SGCL</div>
-            <div className="small muted">Ship Documentation Automation System</div></div>
+        <div style={{ textAlign: 'center', marginBottom: 22 }}>
+          <img src="/sgcl-logo-light.png" alt="SGCL NSW Assist" style={{ width: 260, maxWidth: '100%', height: 'auto' }} />
+          <div className="small muted" style={{ marginTop: 6 }}>Ship Documentation Automation System</div>
         </div>
         {err && <div className="alert red">{err}</div>}
         <div className="field"><label className="f">Tên đăng nhập</label><input value={username} onChange={(e) => setU(e.target.value)} autoFocus /></div>

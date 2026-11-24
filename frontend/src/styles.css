@@ -24,7 +24,8 @@ code, .mono { font-family: Arial, 'Helvetica Neue', Helvetica, sans-serif; font-
 .shell { display: flex; min-height: 100%; }
 .sidebar { width: 248px; flex-shrink: 0; background: var(--teal-900); color: #d5f5ef; display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 18px 18px 14px; border-bottom: 1px solid rgba(255,255,255,.08); }
-.brand img { width: 38px; height: 38px; }
+.brand { justify-content: center; }
+.brand img { width: 196px; height: auto; display: block; }
 .brand b { font-size: 18px; letter-spacing: .5px; color: #fff; display: block; }
 .brand span { font-size: 11px; color: #99d5cb; line-height: 1.2; display: block; }
 .nav { padding: 10px 8px; flex: 1; overflow-y: auto; }
