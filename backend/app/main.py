@@ -129,7 +129,7 @@ def current_user(authorization: str = Header(default="")):
     with db.tx() as c:
         limit = (db.local_now() - timedelta(hours=SESSION_HOURS)).strftime("%Y-%m-%d %H:%M:%S")
         c.execute("DELETE FROM sessions WHERE created_at < ?", (limit,))
-        u = db.row(c, "SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=?", (token,))
+        u = db.row(c, "SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND COALESCE(u.active,1)=1", (token,))
     if not u:
         raise HTTPException(401, "Phiên đăng nhập không hợp lệ")
     u.pop("password_hash", None)
@@ -147,29 +147,50 @@ class LoginIn(BaseModel):
     password: str
 
 
+def access(c, username, action, request: Request | None):
+    ip = (request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (request.client.host if request.client else "")) if request else ""
+    ua = request.headers.get("user-agent", "")[:200] if request else ""
+    c.execute("INSERT INTO access_log(username,action,ip,user_agent,at) VALUES(?,?,?,?,?)", (username, action, ip, ua, db.now()))
+
+
 @app.post("/api/login")
 def login(body: LoginIn, request: Request):
-    key = (body.username.strip().lower(), request.client.host if request.client else "")
+    name = body.username.strip()
+    key = (name.lower(), request.client.host if request.client else "")
     t = datetime.now().timestamp()
     fails = [x for x in LOGIN_FAILS.get(key, []) if t - x < 900]
     if len(fails) >= 5:
+        with db.tx() as c:
+            access(c, name, "LOCKED", request)
         raise HTTPException(429, "Đăng nhập sai quá 5 lần - vui lòng thử lại sau 15 phút")
     with db.tx() as c:
-        u = db.row(c, "SELECT * FROM users WHERE username=?", (body.username.strip(),))
-        if not u or not db.verify_password(body.password, u["password_hash"]):
-            LOGIN_FAILS[key] = fails + [t]
-            raise HTTPException(401, "Sai tên đăng nhập hoặc mật khẩu")
+        u = db.row(c, "SELECT * FROM users WHERE username=?", (name,))
+        ok = u and db.verify_password(body.password, u["password_hash"])
+        if not ok:
+            access(c, name, "LOGIN_FAILED", request)
+        elif not u.get("active", 1):
+            access(c, name, "LOGIN_DISABLED", request)
+    if not ok:
+        LOGIN_FAILS[key] = fails + [t]
+        raise HTTPException(401, "Sai tên đăng nhập hoặc mật khẩu")
+    if not u.get("active", 1):
+        raise HTTPException(403, "Tài khoản đã bị khóa - liên hệ quản trị viên")
     LOGIN_FAILS.pop(key, None)
     with db.tx() as c:
         token = secrets.token_hex(24)
         c.execute("INSERT INTO sessions(token,user_id,created_at) VALUES(?,?,?)", (token, u["id"], db.now()))
+        access(c, u["username"], "LOGIN", request)
     return {"token": token, "user": {"id": u["id"], "username": u["username"], "full_name": u["full_name"], "role": u["role"]}}
 
 
 @app.post("/api/logout")
-def logout(authorization: str = Header(default="")):
+def logout(request: Request, authorization: str = Header(default="")):
+    token = authorization.replace("Bearer ", "").strip()
     with db.tx() as c:
-        c.execute("DELETE FROM sessions WHERE token=?", (authorization.replace("Bearer ", ""),))
+        u = db.row(c, "SELECT u.username FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=?", (token,))
+        c.execute("DELETE FROM sessions WHERE token=?", (token,))
+        if u:
+            access(c, u["username"], "LOGOUT", request)
     return {"ok": True}
 
 
@@ -305,7 +326,7 @@ def create_vessel(body: VesselIn, u=Depends(current_user)):
 
 
 @app.put("/api/vessels/{pid}")
-def update_vessel(pid: int, body: VesselIn, u=Depends(current_user)):
+def update_vessel(pid: int, body: VesselIn, u=Depends(supervisor)):
     with db.tx() as c:
         c.execute("UPDATE vessel_profiles SET vessel_name=?,imo=?,call_sign=?,flag=?,gross_tonnage=?,net_tonnage=?,notes=?,updated_at=? WHERE id=?",
                   (body.vessel_name.strip().upper(), body.imo, body.call_sign, body.flag, body.gross_tonnage, body.net_tonnage, body.notes, db.now(), pid))
@@ -1308,9 +1329,9 @@ def history(u=Depends(current_user)):
 
 # ------------------------------------------------------------------ settings & samples
 @app.get("/api/settings")
-def settings(u=Depends(current_user)):
+def settings(u=Depends(supervisor)):
     with db.tx() as c:
-        users = db.rows(c, "SELECT id, username, full_name, role, created_at FROM users ORDER BY id")
+        users = db.rows(c, "SELECT id, username, full_name, role, active, created_at FROM users ORDER BY id")
     tpl = nsw_export.Book(db.TEMPLATE_PATH)
     return {"ocr": ingest.ocr_status(), "template": {"path": os.path.basename(db.TEMPLATE_PATH), "sheets": tpl.sheet_names, "states": tpl.sheet_state},
             "codes": {k: len(v) for k, v in N.CODES.items()}, "users": users, "doc_types": extract.DOC_TYPES,
@@ -1336,6 +1357,7 @@ def create_user(body: UserIn, u=Depends(supervisor)):
                       (body.username.strip(), body.full_name, db.hash_password(body.password), body.role, db.now()))
         except Exception:
             raise HTTPException(400, "Tên đăng nhập đã tồn tại")
+        db.admin_log(c, "CREATE_USER", u["username"], body.username.strip(), f"Vai trò: {body.role}")
     return {"ok": True}
 
 
@@ -1379,6 +1401,10 @@ def create_sample(scenario: int, u=Depends(current_user)):
 @app.get("/api/health")
 def health():
     return {"ok": True, "ocr": ingest.ocr_status()}
+
+
+from . import admin  # noqa: E402  (admin workspace; registered before the SPA catch-all route)
+app.include_router(admin.build_router(current_user, supervisor))
 
 
 # ------------------------------------------------------------------ frontend

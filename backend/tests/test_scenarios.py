@@ -717,3 +717,32 @@ def test_trash_restore_archive():
     assert client.delete(f"/api/voyages/{v['id']}/purge", headers=H).status_code == 200 and v["id"] not in ids("trash")
     with db.tx() as cx:
         cx.execute("UPDATE users SET role='staff' WHERE username='staff'")
+
+
+def test_admin_workspace():
+    from app import main
+    main.LOGIN_FAILS.clear()   # an earlier test locks the admin login on purpose
+    login("admin", "admin123")
+    adm = dict(H)
+    login("staff", "staff123")
+    st = dict(H)
+    assert client.get("/api/admin/users", headers=st).status_code == 403
+    assert client.get("/api/settings", headers=st).status_code == 403
+    users = {u["username"]: u for u in client.get("/api/admin/users", headers=adm).json()}
+    assert users["staff"]["last_login"]
+    me = users["admin"]["id"]
+    assert client.put(f"/api/admin/users/{me}", json={"active": False}, headers=adm).status_code == 400   # no self-lock
+    sid = users["staff"]["id"]
+    client.put(f"/api/admin/users/{sid}", json={"active": False}, headers=adm)
+    assert client.get("/api/me", headers=st).status_code == 401
+    assert client.post("/api/login", json={"username": "staff", "password": "staff123"}).status_code == 403
+    client.put(f"/api/admin/users/{sid}", json={"active": True}, headers=adm)
+    assert any(a["action"] == "LOGIN_DISABLED" for a in client.get("/api/admin/access", headers=adm).json())
+    assert client.get("/api/admin/catalogs/ports?q=VNLAP", headers=adm).json()["items"][0]["code"] == "VNLAP"
+    assert client.post("/api/admin/template", files={"file": ("x.xlsx", b"no")}, headers=adm).status_code == 400
+    name = client.post("/api/admin/backups", headers=adm).json()["name"]
+    assert client.get(f"/api/admin/backups/{name}/download?token=" + st["Authorization"][7:]).status_code in (401, 403)
+    assert name in [b["name"] for b in client.get("/api/admin/backups", headers=adm).json()["backups"]]
+    client.delete(f"/api/admin/backups/{name}", headers=adm)
+    assert client.get("/api/admin/stats?days=7", headers=adm).json()["totals"]["logins"] >= 2
+    login()

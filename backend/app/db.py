@@ -15,7 +15,18 @@ DATA_DIR = os.environ.get("SGCL_DATA_DIR", os.path.join(BASE_DIR, "data"))
 DB_PATH = os.path.join(DATA_DIR, "sgcl.db")
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
 EXPORT_DIR = os.path.join(DATA_DIR, "exports")
-TEMPLATE_PATH = os.environ.get("SGCL_TEMPLATE", os.path.join(BASE_DIR, "templates", "TemplateNSW.xlsx"))
+BACKUP_DIR = os.path.join(DATA_DIR, "backups")
+DEFAULT_TEMPLATE = os.path.join(BASE_DIR, "templates", "TemplateNSW.xlsx")
+CUSTOM_TEMPLATE = os.path.join(DATA_DIR, "templates", "TemplateNSW.xlsx")   # uploaded in the admin workspace
+
+
+def active_template():
+    if os.environ.get("SGCL_TEMPLATE"):
+        return os.environ["SGCL_TEMPLATE"]
+    return CUSTOM_TEMPLATE if os.path.isfile(CUSTOM_TEMPLATE) else DEFAULT_TEMPLATE
+
+
+TEMPLATE_PATH = active_template()
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -25,6 +36,15 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'staff',          -- staff | supervisor
   created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS access_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT, action TEXT NOT NULL,          -- LOGIN | LOGIN_FAILED | LOGOUT | LOCKED
+  ip TEXT, user_agent TEXT, at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS admin_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  action TEXT NOT NULL, target TEXT, detail TEXT, user TEXT, at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS sessions (
   token TEXT PRIMARY KEY,
@@ -174,6 +194,8 @@ def verify_password(pw: str, stored: str) -> bool:
 
 
 def init_db():
+    global TEMPLATE_PATH
+    TEMPLATE_PATH = active_template()
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     os.makedirs(EXPORT_DIR, exist_ok=True)
     with tx() as c:
@@ -189,7 +211,8 @@ def init_db():
                                 ("documents", "page_to", "INTEGER"),
                                 ("documents", "split_disabled", "INTEGER NOT NULL DEFAULT 0"),
                                 ("voyages", "deleted_at", "TEXT"), ("voyages", "deleted_by", "TEXT"),       # in the trash (restorable)
-                                ("voyages", "archived_at", "TEXT"), ("voyages", "archived_by", "TEXT")):    # archived (kept for viewing)
+                                ("voyages", "archived_at", "TEXT"), ("voyages", "archived_by", "TEXT"),
+                                ("users", "active", "INTEGER NOT NULL DEFAULT 1")):    # archived (kept for viewing)
             if col not in [r[1] for r in c.execute(f"PRAGMA table_info({table})")]:
                 c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
         if not c.execute("SELECT 1 FROM users").fetchone():
@@ -214,6 +237,10 @@ def log(conn, voyage_id, action, user, field_id=None, field_key=None, old=None, 
     conn.execute(
         "INSERT INTO review_log(voyage_id,field_id,action,field_key,old_value,new_value,reason,user,at) VALUES(?,?,?,?,?,?,?,?,?)",
         (voyage_id, field_id, action, field_key, old, new, reason, user, now()))
+
+
+def admin_log(conn, action, user, target=None, detail=None):
+    conn.execute("INSERT INTO admin_log(action,target,detail,user,at) VALUES(?,?,?,?,?)", (action, target, detail, user, now()))
 
 
 def dumps(o):

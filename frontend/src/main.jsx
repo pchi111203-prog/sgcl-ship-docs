@@ -27,7 +27,7 @@ const NAV = [
   { to: '/history', label: 'Lịch sử xử lý', n: 8 },
   { to: '/archive', label: 'Lưu trữ', n: 9 },
   { to: '/trash', label: 'Thùng rác', n: 10 },
-  { to: '/settings', label: 'Cài đặt hệ thống', n: 11 },
+  { to: '/settings', label: 'Cài đặt hệ thống', n: 11, admin: true },
 ]
 
 function Shell({ user, onLogout, children }) {
@@ -37,7 +37,7 @@ function Shell({ user, onLogout, children }) {
       <aside className="sidebar">
         <div className="brand"><img src="/sgcl-logo.svg" alt="SGCL" /><div><b>SGCL</b><span>Ship Documentation<br />Automation System</span></div></div>
         <nav className="nav">
-          {NAV.map((n, i) => n.sep ? <div key={i} className="sep">{n.sep}</div> : (
+          {NAV.filter((n) => !n.admin || user.role === 'supervisor').map((n, i) => n.sep ? <div key={i} className="sep">{n.sep}</div> : (
             <NavLink key={n.to} to={n.to} end={n.end}
               className={({ isActive }) => (isActive || (n.match && path.startsWith('/voyages/') && path.endsWith('/' + n.match)) ? 'active' : '')}>
               <span className="num">{n.n}</span>{n.label}
@@ -46,7 +46,7 @@ function Shell({ user, onLogout, children }) {
         </nav>
         <div className="user">
           <div><b style={{ color: '#fff' }}>{user.full_name}</b></div>
-          <div className="small" style={{ color: '#99d5cb' }}>{user.username} · {user.role === 'supervisor' ? 'Supervisor' : 'Nhân viên'}</div>
+          <div className="small" style={{ color: '#99d5cb' }}>{user.username} · {user.role === 'supervisor' ? 'Admin Workspace' : 'Staff Workspace'}</div>
           <button className="btn sm" onClick={onLogout}>Đăng xuất</button>
         </div>
       </aside>
