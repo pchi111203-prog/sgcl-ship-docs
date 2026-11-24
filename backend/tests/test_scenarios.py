@@ -727,7 +727,10 @@ def test_admin_workspace():
     login("staff", "staff123")
     st = dict(H)
     assert client.get("/api/admin/users", headers=st).status_code == 403
-    assert client.get("/api/settings", headers=st).status_code == 403
+    assert client.get("/api/settings", headers=st).json()["users"] == []           # template view only
+    assert client.get("/api/admin/template", headers=st).status_code == 200
+    assert client.post("/api/admin/template", files={"file": ("x.xlsx", b"no")}, headers=st).status_code == 403
+    assert client.delete("/api/admin/template", headers=st).status_code == 403
     users = {u["username"]: u for u in client.get("/api/admin/users", headers=adm).json()}
     assert users["staff"]["last_login"]
     me = users["admin"]["id"]

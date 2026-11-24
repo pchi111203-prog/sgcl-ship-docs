@@ -31,7 +31,14 @@ export default function Settings({ user }) {
   const [tab, setTab] = useState(() => { try { return localStorage.getItem('sgcl.adminTab') || 'accounts' } catch { return 'accounts' } })
   const pick = (t) => { setTab(t); try { localStorage.setItem('sgcl.adminTab', t) } catch { /* ignore */ } }
   if (user.role !== 'supervisor') {
-    return <div className="card"><div className="empty"><h2>Khu vực quản trị</h2><p className="muted">Chỉ tài khoản quản trị viên được vào khu vực này. Tài khoản nhân viên làm việc trong Staff Workspace: quản lý chuyến tàu, tải và xử lý chứng từ, đối chiếu, kiểm tra và xuất Excel.</p></div></div>
+    return (
+      <>
+        <div className="page-head"><div><div className="small" style={{ color: 'var(--teal-700)', fontWeight: 600, letterSpacing: '.04em' }}>STAFF WORKSPACE</div><h1>Cài đặt hệ thống</h1>
+          <p>Mẫu Excel NSW đang dùng, bảng ánh xạ dữ liệu và dữ liệu mẫu để kiểm thử. Việc thay mẫu NSW và các phần quản trị khác do quản trị viên thực hiện.</p></div></div>
+        <div className="tabs"><button className="on">Quản lý mẫu NSW</button></div>
+        <Template readOnly />
+      </>
+    )
   }
   return (
     <>
@@ -229,7 +236,7 @@ function Catalogs() {
 }
 
 // ---------------------------------------------------------------- NSW template
-function Template() {
+function Template({ readOnly = false }) {
   const [t, setT] = useState(null)
   const [s, setS] = useState(null)
   const [busy, setBusy] = useState(0)
@@ -268,6 +275,13 @@ function Template() {
           <div className="small" style={{ marginTop: 10 }}>{t.sheets.map((n, i) => <span key={n} className={`badge ${t.states[n] === 'hidden' ? 'b-gray' : 'b-teal'}`} style={{ margin: 2 }}>{i + 1}. {n}{t.states[n] === 'hidden' ? ' (ẩn)' : ''}</span>)}</div>
           <p className="small muted" style={{ marginTop: 8 }}>Sheet ghi “(ẩn)” là sheet bị ẩn sẵn trong mẫu NSW gốc; hệ thống giữ nguyên trạng thái ẩn/hiện khi xuất file.</p>
         </div>
+        {readOnly ? (
+        <div className="card">
+          <h2>Tải mẫu NSW</h2>
+          <p className="small muted">Tải về đúng file mẫu Excel NSW hệ thống đang dùng để xuất dữ liệu. Muốn thay mẫu mới, liên hệ quản trị viên.</p>
+          <a className="btn" href={fileUrl('/api/admin/template/download')}>⬇ Tải mẫu đang dùng</a>
+        </div>
+        ) : (
         <div className="card">
           <h2>Thay mẫu NSW</h2>
           <p className="small muted">Khi NSW ban hành mẫu mới, tải file .xlsx lên đây. Hệ thống kiểm tra mẫu mới phải có đủ các sheet như mẫu hiện tại (vì dữ liệu được điền theo tên sheet và vị trí ô), rồi cập nhật lại danh mục mã từ sheet Declaration list. Mẫu cũ được cất vào thư mục sao lưu.</p>
@@ -280,6 +294,7 @@ function Template() {
           {!!t.history.length && <><h3 style={{ marginTop: 16 }}>Lịch sử thay mẫu</h3>
             {t.history.map((h, i) => <div key={i} className="small" style={{ marginBottom: 3 }}>{h.at} · <b>{h.user}</b> · {h.detail}</div>)}</>}
         </div>
+        )}
       </div>
 
       <div className="card tight">

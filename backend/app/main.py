@@ -1329,12 +1329,12 @@ def history(u=Depends(current_user)):
 
 # ------------------------------------------------------------------ settings & samples
 @app.get("/api/settings")
-def settings(u=Depends(supervisor)):
+def settings(u=Depends(current_user)):
     with db.tx() as c:
         users = db.rows(c, "SELECT id, username, full_name, role, active, created_at FROM users ORDER BY id")
     tpl = nsw_export.Book(db.TEMPLATE_PATH)
     return {"ocr": ingest.ocr_status(), "template": {"path": os.path.basename(db.TEMPLATE_PATH), "sheets": tpl.sheet_names, "states": tpl.sheet_state},
-            "codes": {k: len(v) for k, v in N.CODES.items()}, "users": users, "doc_types": extract.DOC_TYPES,
+            "codes": {k: len(v) for k, v in N.CODES.items()}, "users": users if u["role"] == "supervisor" else [], "doc_types": extract.DOC_TYPES,
             "mapping": {"headers": {s: [{"cell": r, "label": l, "source": sp} for r, l, sp in rows] for s, (rows, _) in nsw_export.SHEET_HEADERS.items()},
                         "tables": nsw_export.TABLES, "clear_only": nsw_export.CLEAR_ONLY},
             "low_confidence_threshold": extract.LOW_CONF}

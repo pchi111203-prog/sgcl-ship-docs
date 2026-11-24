@@ -26,11 +26,12 @@ PERMISSIONS = [
     ("Staff Workspace", "Kiểm tra và xác nhận", True, True),
     ("Staff Workspace", "Xuất file Excel NSW", True, True),
     ("Staff Workspace", "Lịch sử xử lý, Lưu trữ, Thùng rác (xem)", True, True),
+    ("Staff Workspace", "Cài đặt hệ thống: xem mẫu NSW đang dùng, bảng ánh xạ, tạo dữ liệu mẫu để kiểm thử", True, True),
     ("Duyệt ngoại lệ", "Xóa chuyến tàu vào Thùng rác, xóa vĩnh viễn", False, True),
     ("Duyệt ngoại lệ", "Xuất Excel khi còn lỗi chặn (mật khẩu Supervisor)", False, True),
     ("Admin Workspace", "Quản lý tài khoản, phân quyền", False, True),
     ("Admin Workspace", "Quản lý danh mục, hồ sơ tàu", False, True),
-    ("Admin Workspace", "Quản lý mẫu NSW", False, True),
+    ("Admin Workspace", "Thay mẫu NSW / dùng lại mẫu gốc", False, True),
     ("Admin Workspace", "Giám sát hoạt động, lịch sử truy cập, sao lưu & khôi phục", False, True),
     ("Admin Workspace", "Thống kê người dùng và hoạt động", False, True),
 ]
@@ -250,7 +251,7 @@ def build_router(current_user, supervisor):
 
     # ---------------------------------------------------------------- NSW template
     @r.get("/template")
-    def template(u=Depends(supervisor)):
+    def template(u=Depends(current_user)):        # read-only view, staff included
         info = _template_info()
         info["codes"] = {k: len(v) for k, v in N.CODES.items()}
         with db.tx() as c:
@@ -262,7 +263,7 @@ def build_router(current_user, supervisor):
 
     @r.get("/template/download")
     def template_download(token: str = ""):
-        link_user(token)
+        current_user("Bearer " + token)
         return FileResponse(db.TEMPLATE_PATH, filename="TemplateNSW.xlsx")
 
     @r.post("/template")
