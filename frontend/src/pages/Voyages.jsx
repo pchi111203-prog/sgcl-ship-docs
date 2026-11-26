@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
-import { Badge, Progress, Spinner, useToast, VOYAGE_STATUS } from '../components'
+import { Badge, Progress, Spinner, useToast, VOYAGE_STATUS, workVoyage } from '../components'
 
 const STICKY = { width: 250, minWidth: 250, whiteSpace: 'nowrap', verticalAlign: 'middle', position: 'sticky', right: 0, background: 'var(--surface)', boxShadow: '-6px 0 6px -6px rgba(0,0,0,.25)', zIndex: 1 };
 
@@ -99,6 +99,7 @@ export function VoyageForm() {
           v = await api('/api/voyages', { method: 'POST', body: { ...body, allow_duplicate: true } })
         } else { nav(`/voyages/${ex.detail.duplicate_id}/documents`); return }
       }
+      if (!id) workVoyage.set(v.id)   // the new voyage becomes the one the sidebar steps work on
       toast(id ? 'Đã lưu thông tin chuyến tàu' : `Đã tạo chuyến ${v.voyage_code}`)
       nav(`/voyages/${v.id}/documents`)
     } catch (ex) { toast(ex.message, 'err') } finally { setBusy(false) }

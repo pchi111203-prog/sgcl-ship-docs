@@ -74,7 +74,7 @@ export function useVoyage(poll = 0) {
   const { id } = useParams()
   const [voyage, setVoyage] = useState(null)
   const [err, setErr] = useState(null)
-  const load = useCallback(() => api(`/api/voyages/${id}`).then((v) => { setVoyage(v); try { localStorage.setItem('sgcl.voyage', id) } catch { /* */ } }).catch(setErr), [id])
+  const load = useCallback(() => api(`/api/voyages/${id}`).then(setVoyage).catch(setErr), [id])
   useEffect(() => { load() }, [load])
   useEffect(() => { if (!poll) return; const t = setInterval(load, poll); return () => clearInterval(t) }, [load, poll])
   return { id, voyage, reload: load, err }
@@ -122,21 +122,27 @@ export function VoyageHeader({ voyage, current }) {
 /* Pages in the sidebar that need a voyage: continue the voyage being worked on; a finished voyage (Excel exported)
    is not reopened here - the page stays empty and says to create / open a voyage. */
 const STEP_NAMES = { documents: 'xử lý chứng từ', crosscheck: 'đối chiếu dữ liệu', review: 'kiểm tra và xác nhận', export: 'xuất file Excel NSW' }
+// The voyage being worked on from the sidebar: set only when a new voyage is created, kept for this login session.
+export const workVoyage = {
+  get() { try { return sessionStorage.getItem('sgcl.workVoyage') } catch { return null } },
+  set(id) { try { sessionStorage.setItem('sgcl.workVoyage', String(id)) } catch { /* */ } },
+  clear() { try { sessionStorage.removeItem('sgcl.workVoyage'); localStorage.removeItem('sgcl.voyage') } catch { /* */ } },
+}
+
 export function VoyageGate({ target }) {
   const nav = useNavigate()
   const loc = useLocation()
   const [ready, setReady] = useState(false)
   useEffect(() => {
-    let last = null
-    try { last = localStorage.getItem('sgcl.voyage') } catch { /* */ }
+    // Only a voyage created in this login session ("Tạo chuyến tàu mới") is continued from the sidebar.
+    // Older or sample voyages are opened from "Quản lý chuyến tàu".
+    const last = workVoyage.get()
+    if (!last) { setReady(true); return }
     api('/api/voyages').then((vs) => {
       const v = vs.find((x) => String(x.id) === last)
       if (v && v.progress.status !== 'EXPORTED' && !loc.state?.choose) nav(`/voyages/${last}/${target}`, { replace: true })
-      else {
-        if (v) { try { localStorage.removeItem('sgcl.voyage') } catch { /* */ } }  // finished voyage: its work session is over
-        setReady(true)
-      }
-    })
+      else { workVoyage.clear(); setReady(true) }   // finished (or deleted): its work session is over
+    }).catch(() => setReady(true))
   }, [target])
   if (!ready) return <div className="empty"><Spinner /></div>
   return (

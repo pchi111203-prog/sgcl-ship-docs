@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter, Navigate, NavLink, Route, Routes, useNavigate } from 'react-router-dom'
+import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import './styles.css'
 import { api, auth } from './api'
-import { ToastProvider, VoyageGate } from './components'
+import { ToastProvider, VoyageGate, workVoyage } from './components'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import { VoyageList, VoyageForm, VoyageBin } from './pages/Voyages'
@@ -31,14 +31,15 @@ const NAV = [
 ]
 
 function Shell({ user, onLogout, children }) {
-  const path = window.location.pathname
+  const path = useLocation().pathname
+  const cur = (path.match(/^\/voyages\/(\d+)\/(documents|crosscheck|review|export)$/) || [])[1]   // voyage being viewed
   return (
     <div className="shell">
       <aside className="sidebar">
         <div className="brand"><img src="/sgcl-logo-dark.png" alt="SGCL NSW Assist" /></div>
         <nav className="nav">
           {NAV.map((n, i) => n.sep ? <div key={i} className="sep">{n.sep}</div> : (
-            <NavLink key={n.to} to={n.to} end={n.end}
+            <NavLink key={n.to} to={n.match && cur ? `/voyages/${cur}/${n.match}` : n.to} end={n.end}
               className={({ isActive }) => (isActive || (n.match && path.startsWith('/voyages/') && path.endsWith('/' + n.match)) ? 'active' : '')}>
               <span className="num">{n.n}</span>{n.label}
             </NavLink>
@@ -70,8 +71,8 @@ function App() {
     api('/api/me').then(setUser).catch(() => setUser(null))
   }, [])
   if (user === undefined) return null
-  if (!user) return <Routes><Route path="*" element={<Login onLogin={(u) => { setUser(u); nav('/') }} />} /></Routes>
-  const logout = async () => { await api('/api/logout', { method: 'POST' }).catch(() => {}); auth.token = null; setUser(null); nav('/login') }
+  if (!user) return <Routes><Route path="*" element={<Login onLogin={(u) => { workVoyage.clear(); setUser(u); nav('/') }} />} /></Routes>
+  const logout = async () => { await api('/api/logout', { method: 'POST' }).catch(() => {}); auth.token = null; workVoyage.clear(); setUser(null); nav('/login') }
   return (
     <Shell user={user} onLogout={logout}>
       <Routes>
