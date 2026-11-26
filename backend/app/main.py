@@ -279,7 +279,8 @@ def _touch(c, vid):
 @app.get("/api/dashboard")
 def dashboard(u=Depends(current_user)):
     with db.tx() as c:
-        voyages = db.rows(c, "SELECT * FROM voyages WHERE deleted_at IS NULL AND archived_at IS NULL ORDER BY id DESC")
+        # archived voyages stay on the dashboard (marked) - only the trash is left out
+        voyages = db.rows(c, "SELECT * FROM voyages WHERE deleted_at IS NULL ORDER BY id DESC")
         for v in voyages:
             v["progress"] = voyage_progress(c, v)
         live = "voyage_id IN (SELECT id FROM voyages WHERE deleted_at IS NULL)"

@@ -714,6 +714,8 @@ def test_trash_restore_archive():
     assert v["id"] in ids("active")
     client.post(f"/api/voyages/{v['id']}/archive", json={"archived": True}, headers=H)
     assert v["id"] in ids("archived") and v["id"] not in ids("active")
+    dash = client.get("/api/dashboard", headers=H).json()["recent"]
+    assert any(x["id"] == v["id"] and x["archived_at"] for x in dash)  # archived voyages stay on the dashboard
     client.post(f"/api/voyages/{v['id']}/archive", json={"archived": False}, headers=H)
     assert client.delete(f"/api/voyages/{v['id']}/purge", headers=H).status_code == 400  # only from the trash
     client.delete(f"/api/voyages/{v['id']}", headers=H)
