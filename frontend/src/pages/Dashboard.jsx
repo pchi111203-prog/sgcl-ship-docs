@@ -31,8 +31,7 @@ export default function Dashboard() {
               {d.recent.map((v) => (
                 <tr key={v.id} style={{ cursor: 'pointer' }} onClick={() => nav(`/voyages/${v.id}/documents`)}>
                   <td className="mono">{v.voyage_code}</td>
-                  <td><b>{v.vessel_name || '—'}</b> {v.is_sample ? <span className="badge b-sample">MẪU</span> : null}
-                    {v.archived_at ? <span className="badge b-gray" style={{ marginLeft: 4 }} title={`Lưu trữ lúc ${v.archived_at}`}>Lưu trữ</span> : null}</td>
+                  <td><b>{v.vessel_name || '—'}</b> {v.is_sample ? <span className="badge b-sample">MẪU</span> : null}</td>
                   <td>{v.imo || '—'}</td><td>{v.voyage_no || '—'}</td><td>{v.port_of_arrival || '—'}</td><td>{v.eta || '—'}</td>
                   <td className="small">{v.created_at}</td>
                   <td><Badge map={VOYAGE_STATUS} value={v.progress.status} />{v.progress.blocking ? <span className="badge b-red" style={{ marginLeft: 4 }}>{v.progress.blocking} lỗi</span> : null}</td>
