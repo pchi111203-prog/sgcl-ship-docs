@@ -5,6 +5,10 @@
 > chuỗi không dùng bị loại khỏi file; chỉ giữ nhãn, định dạng, danh sách chọn, ghi chú, công thức tra cứu và sheet danh mục.
 > Khi NSW/SGCL có mẫu mới: chạy lại công cụ này rồi chạy bộ kiểm thử.
 
+> **Cập nhật 26/11/2026:** SGCL gửi bản HQ_NHAP mới, trong đó sheet **Cargo manifest không còn bị ẩn**. Mẫu trắng được tạo lại
+> từ file này (nội dung các sheet khác và danh mục mã giống hệt bản trước). Sheet Cargo manifest nay được **điền** (xem mục 3).
+> Mẫu tải lên ở *Cài đặt hệ thống → Quản lý mẫu NSW* được tự làm sạch giống công cụ trên (`app/template_clean.py`).
+
 ## 0. Khác biệt của mẫu HQ_NHAP so với mẫu cũ
 
 | Nội dung | Mẫu cũ | Mẫu HQ_NHAP (đang dùng) |
@@ -36,7 +40,7 @@ B14–B19 ghi 1/0 theo bản khai có kèm · hàng rời: loại cont `Other`, 
 | 8 | Crew's Effects Declaration | hiện | Hành lý thuyền viên từ dòng 11 (A:D) | Điền – tối đa đến dòng 44 (dòng 45–54 cột C:E có nội dung của mẫu) |
 | 9 | Ship's store declaration | hiện | Dự trữ tàu từ dòng 13 (A:E) | Điền |
 | 10 | Passenger list | hiện | Hành khách từ dòng 11 (A:M) | Điền |
-| 11 | Cargo manifest | **ẩn** | Bản lược khai dạng tổng hợp (hình thức chuyển tải, TEU…) | Giữ ẩn, chỉ xóa mẫu |
+| 11 | Cargo manifest | hiện (từ 26/11/2026) | Bản lược khai dạng tổng hợp (hình thức chuyển tải, TEU…) | Điền: B3–B8 và 1 dòng / nhóm hàng từ dòng 12 (A:K) |
 | 12 | Dangerous goods manifest | hiện | Hàng nguy hiểm từ dòng 14 (A:P) | Điền |
 | 13–21 | Ship Security, Plant, Animal, Health, Empty Container, Arms & Explosive, Stowaway, Add User, InlandAttachmentList | hiện | Các bản khai khác | Chỉ xóa mẫu (bộ chứng từ hiện tại không có nguồn) |
 
@@ -71,7 +75,7 @@ Quy ước chung các sheet bản khai: **A = nhãn (Việt/Anh), B = giá trị
 | Q5 | “List of House bill of lading”: làm sao phân biệt House B/L và Master B/L trong bộ chứng từ của SGCL? | Chưa điền, chỉ xóa mẫu |
 | Q6 | B14–B19 GD/NOA (“số bản” các bản khai kèm theo): ghi số lượng bản hay 1/0? | Để trống, nhập tay nếu cần |
 | Q7 | Goods Declaration: 1 dòng / container hay 1 dòng / B/L khi 1 B/L có nhiều container? Cột V “Loại cont” bắt buộc nhưng chứng từ thường không ghi 20/40/45 | 1 dòng / dòng manifest. Cột V: tự nhận diện từ chứng từ (20GP/40HC/45HC, mã ISO 22G1/45G1/L5G1, cột Size/Type); thiếu thì nhân viên chọn ở tab Hàng hóa |
-| Q8 | Sheet ẩn “Cargo manifest” có còn dùng không? | Giữ ẩn, chỉ xóa mẫu |
+| Q8 | ~~Sheet ẩn “Cargo manifest” có còn dùng không?~~ – **đã rõ**: mẫu mới hiện sheet này → điền | Xem quy ước ở mục 3 |
 | Q9 | Bảng chất thải (A38:C43) và nhóm hàng C1_XEP/C2_DO… (A46:G51) cần phân loại theo danh mục NSW – quy tắc phân loại của SGCL? | Chưa điền (không tự suy đoán) |
 | Q10 | B5 Chức năng chứng từ ở các sheet không có dữ liệu: giữ `CN01` hay để trống? | Ghi giá trị chọn ở Tùy chọn (mặc định `CN01`) cho mọi sheet |
 
@@ -96,3 +100,17 @@ Quy ước chung các sheet bản khai: **A = nhãn (Việt/Anh), B = giá trị
 - ConfirmationOfArrival: B6 thời gian đến (NOA/GD), B7 = No.
 - Declaration For Plant: khi hàng là nông sản/thực vật (mã DRY nông sản): bác sĩ NIL, cảng bốc đầu tiên (mã), ngày rời cảng, "<số> TẤN <TÊN HÀNG>", NIL, cảng đến (mã), "HÀNG DỠ Ở <CẢNG>: ...". Declaration For Animal tương tự khi hàng là động vật/sản phẩm động vật.
 - Arms And Explosive Materials, Declaration of Stowaway, Passenger list, Empty Container: chỉ điền khi bộ chứng từ có nội dung đó (file HQ_NHAP chỉ chứa dữ liệu mẫu ở các sheet này).
+
+
+## Cargo manifest (từ mẫu 26/11/2026)
+
+- B3/B4/B5: Số hồ sơ, Năm, Chức năng chứng từ (tùy chọn xuất file).
+- B6 Cảng dỡ hàng = cảng đến của chuyến, B8 Cảng xếp hàng gốc = cảng xếp trên B/L/Manifest, ghi dạng `Quốc gia - TÊN CẢNG`
+  như file mẫu (`United States - NEW PHILADELPHIA OH`), tra theo UN/LOCODE; B7 Cảng đích = tên cảng tiếng Việt (như mẫu
+  `Cảng Nhà rồng (Hồ Chí Minh)`); B9 Cảng trung chuyển: chứng từ không ghi → để trống, nhân viên nhập nếu có.
+- Từ dòng 12: 1 dòng / nhóm hàng (cùng cách nhóm với bảng nhóm hàng của GD/NOA).
+  A Hình thức chuyển tải: `NHẬP KHẨU` (hàng dỡ tại cảng đến), `QUÁ CẢNH` (hàng dỡ cảng khác), `NỘI ĐỊA ĐẾN` (cảng trước là cảng Việt Nam);
+  B Cảng làm hàng; C Cầu cảng = vị trí cầu bến trong chứng từ (để trống nếu không có); D Khối lượng (tấn);
+  E Tên hàng (container: mô tả hàng trên B/L; hàng rời/lỏng: tên hàng theo danh mục NSW); F Hàng nguy hiểm 1/0 (B/L có trên DG Manifest);
+  G Tổng số container; H Số container (không có → NIL); I TEUs (20' = 1, 40'/45' = 2); J TEUs không hàng (danh sách container rỗng);
+  K Loại hàng hóa như file mẫu: `CONTAINER`, `HANG KHO`, `HANG LONG`.

@@ -120,7 +120,10 @@ def test_scenario1_consistent_set_exports():
     assert eff["A11"].value == "-"  # SGCL convention from the filled NSW file: Họ = "-", Tên = full name
     assert wb["General Declaration"]["B33"].value == "19/11/2026" and wb["General Declaration"]["B34"].value == "Đại lý/ShipAgency"
     assert wb["General Declaration"]["B16"].value == "1" and wb["General Declaration"]["B17"].value == "0"  # attached declarations 1/0
-    assert wb["Cargo manifest"].sheet_state == "hidden"
+    cm = wb["Cargo manifest"]
+    assert cm.sheet_state == "visible"  # new NSW template: the sheet is shown and filled
+    assert cm["A12"].value in ("NHẬP KHẨU", "QUÁ CẢNH", "NỘI ĐỊA ĐẾN") and cm["K12"].value in ("CONTAINER", "HANG KHO", "HANG LONG")
+    assert cm["B6"].value and cm["B5"].value
     assert wb.sheetnames[0] == "Declaration list" and len(wb.sheetnames) == 20
     globals()["VID1"] = vid
 

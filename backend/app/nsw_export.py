@@ -87,6 +87,7 @@ SHEET_HEADERS = {
                                   ("B8", "Thông tin bổ sung", "manual"), ("B9", "Nơi ký", "opt:sign_place"), ("B10", "Ngày ký", "opt:sign_date"),
                                   ("B11", "Người ký", "opt:signer")], ["DG_MANIFEST", "CARGO_MANIFEST"]),
     "Empty Container": ([("B3", "Số hồ sơ", "opt:doc_no"), ("B4", "Năm đăng ký", "opt:doc_year")], []),
+    "Cargo manifest": ([("B3", "Số hồ sơ", "opt:doc_no"), ("B4", "Năm đăng ký", "opt:doc_year")], []),
     "Declaration For Ship Security": ([("B3", "Số hồ sơ", "opt:doc_no"), ("B4", "Năm đăng ký", "opt:doc_year"),
                                        ("B9", "Tên cơ quan cấp ISSC", "src:issc_issuer"), ("B10", "Ngày cấp ISSC", "src:issc_issue_date:date"),
                                        ("B11", "Ngày ISSC hết hạn", "src:issc_expiry:date"), ("B12", "Cấp độ an ninh hiện tại", "src:security_level:level"),
@@ -102,7 +103,7 @@ CLEAR_ONLY = {
     "Notice ship to port": ["A36:C41", "A44:G46"],
     "ConfirmationOfArrival": ["A13:F18"],
     "List of House bill of lading": ["A4:X4", "B7:G7"],
-    "Cargo manifest": ["B3:B9", "A12:K15"],
+    "Cargo manifest": ["B3:B9"],
     "Declaration For Ship Security": ["B6:B8", "B13:B16"],
     "Declaration For Plant": ["B3:B4", "B6:B15"],
     "Declaration For Animal": ["B3:B4", "B6:B12"],
@@ -113,7 +114,7 @@ CLEAR_ONLY = {
 }
 DOC_FUNCTION_CELLS = {"Declaration For Ship Security": "B5", "Declaration For Plant": "B5", "Declaration For Animal": "B5",
                       "Declaration For Health": "B5", "Empty Container": "B5", "Arms And Explosive Materials": "B5",
-                      "Declaration of Stowaway": "B6", "Cargo manifest": None}
+                      "Declaration of Stowaway": "B6", "Cargo manifest": "B5"}
 
 TABLES = {
     "Crew list": dict(first=11, old_last=11, cols="A:K", source="crew"),
@@ -122,7 +123,9 @@ TABLES = {
     "Passenger list": dict(first=11, old_last=11, cols="A:M", source="passenger"),
     "Goods Declaration": dict(first=10, old_last=10, cols="A:W", source="cargo"),
     "Dangerous goods manifest": dict(first=14, old_last=14, cols="A:P", source="dg"),
-    "Empty Container": dict(first=8, old_last=11, cols="A:D", source="empty_container"),  # rows 8-11 carry the port-name lookup formula
+    "Empty Container": dict(first=8, old_last=11, cols="A:D", source="empty_container"),
+    # one row per kind of cargo (import discharged here / transit / domestic), template rows 12-15
+    "Cargo manifest": dict(first=12, old_last=15, cols="A:K", source="cargo", max_row=20),  # rows 8-11 carry the port-name lookup formula
     # NSW form: last 10 port calls (rows 25-34)
     "Declaration For Ship Security": dict(first=25, old_last=25, cols="A:E", source="port_calls", max_row=34),
 }
@@ -384,6 +387,7 @@ def build_plan(conn, voyage_id):
     _goods(plan, data)
     _house_bls(plan, data)
     _cargo_groups(plan, data)
+    _cargo_manifest(plan, data)
     _dg(plan, data)
     _dg_transporter_note(plan)
     _empty_containers(plan, data)
@@ -826,6 +830,121 @@ def _tonnes(rec):
         return None
     return q / 1000 if u in ("KG", "KGS", "KGM") else q
 
+
+
+_COUNTRY_NAMES = None
+
+
+def _country_name(cc):
+    global _COUNTRY_NAMES
+    if _COUNTRY_NAMES is None:
+        _COUNTRY_NAMES = {}
+        with open(os.path.join(os.path.dirname(__file__), "data", "countries.tsv"), encoding="utf-8") as fh:
+            for line in fh:
+                if "\t" in line:
+                    c, n = line.rstrip("\n").split("\t", 1)
+                    _COUNTRY_NAMES[c] = re.sub(r"\s*\(.*?\)", "", n).strip()
+    return _COUNTRY_NAMES.get(cc)
+
+
+def _port_display(data, raw):
+    """Port as the NSW Cargo manifest writes it: 'Country - PORT NAME' from the UN/LOCODE list; as written when unknown."""
+    if not raw:
+        return None
+    code, ok = data.code("locode", raw)
+    if not ok:
+        return raw.strip().upper()
+    N._load_ports()
+    name = next((n for c, n, _ in (N._PORTS or {}).get(code[:2], []) if c == code), None)
+    if not name:  # code known (written in brackets) but not in the seaport list: the name as written, without the code
+        name = re.sub(r"\s*\(\s*[A-Z]{2}[A-Z2-9]{3}\s*\)", "", raw.strip().upper()).strip(" ,")
+        name = name if name and not re.fullmatch(r"[A-Z]{2}[A-Z2-9]{3}", name) else None
+    country = _country_name(code[:2])
+    return f"{country} - {name.upper()}" if name and country else raw.strip().upper()
+
+
+CM_SHEET = "Cargo manifest"
+CM_KIND = {"9": "CONTAINER", "3": "HANG LONG", "12": "HANG KHO"}   # 'Loại hàng hóa' as written in the NSW sample file
+
+
+def _cargo_manifest(plan, data):
+    """Cargo manifest (bản lược khai sơ lược): header ports and one row per kind of cargo, the same grouping as the
+    cargo-group table of GD/NOA. Values the documents do not give are left empty (or NIL for 'container information')."""
+    recs = data.records("cargo", ["CARGO_MANIFEST", "MANUAL"]) or data.records("cargo", ["BILL_OF_LADING"])
+    if not recs:
+        return
+    o = data.opts
+    arrival_raw = data.voyage.get("port_of_arrival") or next((f["value"] for f in data.header("port_of_arrival") or []), None)
+    arrival = plan.cells.get(("General Declaration", "B7")) or plan.cells.get(("Notice ship to port", "B7"))
+    last_port = plan.cells.get(("General Declaration", "B6")) or ""
+    dg_bls = {_v(r, "bl_no") for r in data.records("dg") if _v(r, "bl_no")}
+    berth = next((f["value"] for f in data.header("berth") or [] if f["value"] and f["value"] != "NIL"), None)
+
+    def put(ref, v, label, src):
+        if v not in (None, "") and not o.get(f"cell:{CM_SHEET}!{ref}"):
+            _set(plan, CM_SHEET, ref, str(v), label, [{"doc": src, "status": "DERIVED"}], "derived")
+    put("B6", _port_display(data, arrival_raw), "Cảng dỡ hàng", "Cảng đến của chuyến (UN/LOCODE)")
+    dest = next((_v(r, "place_of_delivery") or _v(r, "pod") for r in recs if _v(r, "place_of_delivery") or _v(r, "pod")), None)
+    dest_vi = data.vietnamese_port(dest or arrival_raw)
+    dest_vi = re.sub(r"\s*\(\s*[A-Z]{2}[A-Z2-9]{3}\s*\)", "", dest_vi or "").strip() or None   # no '(VNCLI)' code in the name
+    put("B7", dest_vi, "Cảng đích", "Nơi giao hàng / cảng dỡ trên B/L, Manifest")
+    pols = []
+    for r in recs:
+        p = _port_display(data, _v(r, "pol"))
+        if p and p not in pols:
+            pols.append(p)
+    put("B8", "; ".join(pols), "Cảng xếp hàng gốc", "Cảng xếp hàng trên B/L, Manifest")
+    if not o.get(f"cell:{CM_SHEET}!B9"):
+        plan.empty.append(f"{CM_SHEET}!B9 - Cảng trung chuyển: chứng từ không ghi → nhập tay nếu có")
+
+    empty_teu = sum(2 if re.search(r"40|45", _v(r, "container_type") or "") else 1 for r in data.records("empty_container"))
+    groups, order = {}, []
+    for rec in recs:
+        desc = N.strip_accents(" ".join(_v(rec, k) or "" for k in ("description", "packages", "package_kind"))).upper()
+        pod_code = data.code("locode", _v(rec, "pod"))[0] if _v(rec, "pod") else None
+        here = not pod_code or not arrival or pod_code == arrival
+        form = ("NỘI ĐỊA ĐẾN" if last_port.startswith("VN") else "NHẬP KHẨU") if here else "QUÁ CẢNH"
+        if _v(rec, "container_no"):
+            typ, name = "9", None
+        else:
+            liquid = re.search(_LIQUID, desc)
+            table = LIQUID_CODES if liquid else GOODS_CODES
+            hit = next(((cd, nm) for rx, cd, nm in table if re.search(rx, desc)), None)
+            name = hit[1] if hit else ("HÀNG LỎNG KHÁC" if liquid else "HÀNG KHÔ KHÁC")
+            typ = "3" if liquid else "12"
+        k = (form, typ, name)
+        if k not in groups:
+            groups[k] = {"form": form, "typ": typ, "name": name, "port": _port_display(data, _v(rec, "pod") if not here else arrival_raw),
+                         "t": 0.0, "cn": [], "teu": 0, "dg": False, "desc": [], "fields": []}
+            order.append(k)
+        g = groups[k]
+        t = _tonnes(rec)
+        if t is not None:
+            g["t"] += t
+        for cn in re.split(r"[,;\s]+", _v(rec, "container_no") or ""):
+            if cn and cn not in g["cn"]:
+                g["cn"].append(cn)
+                ct = _v(rec, "container_type") or ""
+                g["teu"] += 2 if re.search(r"40|45", ct) else 1
+        g["dg"] = g["dg"] or (_v(rec, "bl_no") in dg_bls)
+        d0 = re.split(r"\(|;", _v(rec, "description") or "")[0].strip().upper()
+        if d0 and d0 not in g["desc"]:
+            g["desc"].append(d0)
+        g["fields"] += [rec.get(x) for x in ("bl_no", "description", "gross_weight", "pod", "container_no", "container_type")]
+    for i, k in enumerate(order):
+        g = groups[k]
+        cont = g["typ"] == "9"
+        _row(plan, CM_SHEET, {
+            "A": g["form"], "B": g["port"], "C": berth if g["form"] != "QUÁ CẢNH" else None,
+            "D": N.fmt_number(round(g["t"], 3)) if g["t"] else None,
+            "E": "; ".join(g["desc"][:3]) if cont else g["name"],
+            "F": "1" if g["dg"] else "0", "G": str(len(g["cn"])), "H": ", ".join(g["cn"]) if g["cn"] else "NIL",
+            "I": str(g["teu"]), "J": str(empty_teu if i == 0 else 0), "K": CM_KIND[g["typ"]],
+        }, g["fields"], data)
+    if len(order) > 9:
+        plan.warnings.append(f"{CM_SHEET}: có {len(order)} nhóm hàng, mẫu chỉ có chỗ cho 9 dòng (12-20).")
+    if not berth:
+        plan.empty.append(f"{CM_SHEET}!C12 - Cầu cảng làm hàng: chứng từ không ghi vị trí cầu bến → nhập tay nếu có")
 
 def _cargo_groups(plan, data):
     """One row per kind of cargo: group (C2_DO = import discharged here, C5 = transit not handled here), cargo type,

@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from . import db, nsw_export
+from .template_clean import clean_template
 from . import normalize as N
 
 ROLES = {"supervisor": "Quản trị viên (Admin Workspace)", "staff": "Nhân viên (Staff Workspace)"}
@@ -272,10 +273,13 @@ def build_router(current_user, supervisor):
             raise HTTPException(400, "Mẫu NSW phải là file .xlsx")
         data = await file.read()
         with tempfile.TemporaryDirectory() as td:
+            raw = os.path.join(td, "uploaded.xlsx")
             tmp = os.path.join(td, "TemplateNSW.xlsx")
-            with open(tmp, "wb") as fh:
+            with open(raw, "wb") as fh:
                 fh.write(data)
             try:
+                nsw_export.Book(raw)
+                clean_template(raw, tmp)          # sample / voyage data in the new template is removed before use
                 new = nsw_export.Book(tmp)
             except Exception:
                 raise HTTPException(400, "Không đọc được file Excel này")
@@ -294,6 +298,7 @@ def build_router(current_user, supervisor):
                 os.makedirs(old, exist_ok=True)
                 shutil.copy2(db.CUSTOM_TEMPLATE, os.path.join(old, f"TemplateNSW-{db.local_now().strftime('%Y%m%d-%H%M%S')}.xlsx"))
             shutil.copy2(tmp, db.CUSTOM_TEMPLATE)
+            open(db.CUSTOM_TEMPLATE + ".cleaned", "w").close()
         db.TEMPLATE_PATH = db.active_template()
         with db.tx() as c:
             db.admin_log(c, "TEMPLATE_UPLOAD", u["username"], file.filename, f"Thay mẫu NSW bằng {file.filename}")

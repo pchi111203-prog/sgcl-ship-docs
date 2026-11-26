@@ -193,8 +193,21 @@ def verify_password(pw: str, stored: str) -> bool:
     return secrets.compare_digest(hash_password(pw, salt), stored)
 
 
+def clean_custom_template():
+    """A template uploaded before uploads were cleaned automatically may still carry sample data: clean it once."""
+    marker = CUSTOM_TEMPLATE + ".cleaned"
+    if os.path.isfile(CUSTOM_TEMPLATE) and not os.path.isfile(marker):
+        from .template_clean import clean_template
+        try:
+            clean_template(CUSTOM_TEMPLATE, CUSTOM_TEMPLATE)
+            open(marker, "w").close()
+        except Exception as e:  # keep the file as it is; the export still clears every region it writes
+            print(f"SGCL: could not clean the uploaded template: {e}", flush=True)
+
+
 def init_db():
     global TEMPLATE_PATH
+    clean_custom_template()
     TEMPLATE_PATH = active_template()
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     os.makedirs(EXPORT_DIR, exist_ok=True)
