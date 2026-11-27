@@ -36,7 +36,7 @@ function Shell({ user, onLogout, children }) {
   return (
     <div className="shell">
       <aside className="sidebar">
-        <Link to="/" className="brand" title="Về Dashboard"><img src="/sgcl-logo-dark.png" alt="SGCL NSW Assist" /></Link>
+        <Link to="/" className="brand"><img src="/sgcl-logo-dark.png" alt="SGCL NSW Assist" /></Link>
         <nav className="nav">
           {NAV.map((n, i) => n.sep ? <div key={i} className="sep">{n.sep}</div> : (
             <NavLink key={n.to} to={n.match && cur ? `/voyages/${cur}/${n.match}` : n.to} end={n.end}
