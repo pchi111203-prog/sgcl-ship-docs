@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import './styles.css'
 import { api, auth } from './api'
 import { ToastProvider, VoyageGate, workVoyage } from './components'
@@ -36,7 +36,7 @@ function Shell({ user, onLogout, children }) {
   return (
     <div className="shell">
       <aside className="sidebar">
-        <div className="brand"><img src="/sgcl-logo-dark.png" alt="SGCL NSW Assist" /></div>
+        <Link to="/" className="brand" title="Về Dashboard"><img src="/sgcl-logo-dark.png" alt="SGCL NSW Assist" /></Link>
         <nav className="nav">
           {NAV.map((n, i) => n.sep ? <div key={i} className="sep">{n.sep}</div> : (
             <NavLink key={n.to} to={n.match && cur ? `/voyages/${cur}/${n.match}` : n.to} end={n.end}
